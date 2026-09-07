@@ -1,0 +1,17 @@
+# Normalize every detected text file to LF in the repository and worktree.
+* text=auto eol=lf
+
+# Scripts and shell configuration.
+*.sh text eol=lf
+.devcontainer/.zshrc text eol=lf
+
+# Devcontainer configuration and documentation.
+Dockerfile text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf
+
+# Repository metadata.
+.gitattributes text eol=lf
+.gitignore text eol=lf

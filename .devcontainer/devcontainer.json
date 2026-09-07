@@ -1,0 +1,76 @@
+{
+    "name": "GPU Workspace",
+    "dockerComposeFile": "compose.yml",
+    "service": "dev",
+    "workspaceFolder": "/workspace",
+    "shutdownAction": "stopCompose",
+
+    // Oh My Zsh and its plugins are already included in the image. Sync
+    // .zshrc with the repository version after mounting the workspace.
+    // (https://blog.antosubash.com/posts/setup-zsh-and-oh-my-zsh).
+    // Also sync local OpenCode agents and skills after mounting. Both setup
+    // commands can be rerun manually without provider credentials.
+    "postCreateCommand": "sh /workspace/.devcontainer/setup-zsh.sh && bash /workspace/.devcontainer/setup-opencode-harness.sh",
+
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                // Python
+                "ms-python.python",
+                "ms-python.vscode-pylance",
+                "charliermarsh.ruff",
+                "ms-python.mypy-type-checker",
+                "the0807.uv-toolkit",
+                // Notebooks
+                "ms-toolsai.jupyter",
+                // Web / Frontend
+                "vue.volar",
+                "esbenp.prettier-vscode",
+                "pmneo.tsimporter",
+                "stringham.move-ts",
+                // Rust
+                "fill-labs.dependi",
+                // Data and configuration formats
+                "tamasfe.even-better-toml",
+                "redhat.vscode-yaml",
+                "repreng.csv",
+                "editorconfig.editorconfig",
+                // just
+                "nefrob.vscode-just-syntax"
+            ],
+            "settings": {
+                "python.terminal.activateEnvironment": false,
+                "terminal.integrated.defaultProfile.linux": "zsh",
+                "git.autoRepositoryDetection": "subFolders",
+                "git.repositoryScanMaxDepth": 2,
+                "git.ignoreLimitWarning": true,
+                "git.autofetch": true,
+                "files.exclude": {
+                    "**/node_modules": true,
+                    "**/.venv": true,
+                    "**/dist": true,
+                    "**/*.db": true
+                },
+                "[typescript]": {
+                    "editor.defaultFormatter": "esbenp.prettier-vscode",
+                    "editor.formatOnSave": true
+                },
+                "[javascript]": {
+                    "editor.defaultFormatter": "esbenp.prettier-vscode",
+                    "editor.formatOnSave": true
+                },
+                "[vue]": {
+                    "editor.defaultFormatter": "esbenp.prettier-vscode",
+                    "editor.formatOnSave": true
+                },
+                "[python]": {
+                    "editor.defaultFormatter": "charliermarsh.ruff",
+                    "editor.formatOnSave": true,
+                    "editor.codeActionsOnSave": {
+                        "source.organizeImports": "explicit"
+                    }
+                }
+            }
+        }
+    }
+}

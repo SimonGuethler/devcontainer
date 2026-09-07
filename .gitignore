@@ -1,0 +1,26 @@
+# Deny by default. Every versioned file must be explicitly allowed below.
+
+*
+!.devcontainer/
+!.devcontainer/.zshrc
+!.devcontainer/AGENTS.md
+!.devcontainer/Dockerfile
+!.devcontainer/compose.yml
+!.devcontainer/devcontainer.json
+!.devcontainer/setup-opencode.sh
+!.devcontainer/setup-zsh.sh
+!.devcontainer/setup-opencode-harness.sh
+!.devcontainer/test-opencode-harness.sh
+!.devcontainer/opencode/
+!.devcontainer/opencode/agents/
+!.devcontainer/opencode/agents/workspace-review.md
+!.devcontainer/opencode/skills/
+!.devcontainer/opencode/skills/workspace-verification/
+!.devcontainer/opencode/skills/workspace-verification/SKILL.md
+!.devcontainer/opencode/skills/workspace-browser-check/
+!.devcontainer/opencode/skills/workspace-browser-check/SKILL.md
+!.devcontainer/opencode/skills/workspace-memory/
+!.devcontainer/opencode/skills/workspace-memory/SKILL.md
+!.gitattributes
+!.gitignore
+!README.md

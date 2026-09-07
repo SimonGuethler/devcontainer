@@ -1,0 +1,33 @@
+name: gpu-workspace
+
+services:
+  dev:
+    image: gpu-workspace:dev
+    hostname: gpu-workspace-dev
+
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    init: true
+    shm_size: 16gb
+    working_dir: /workspace
+
+    volumes:
+      # Mount the parent directory containing all repositories.
+      - ..:/workspace:cached
+
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+
+    command: sleep infinity
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities:
+                - gpu
