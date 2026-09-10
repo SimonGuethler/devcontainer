@@ -83,6 +83,7 @@ docker compose -f .devcontainer/compose.yml down
 | Context7 | Documentation queries sent to an external service | `--no-context7` |
 | LiteLLM MCP gateway | Tools exposed by your proxy at `/mcp`; requires gateway support and access | `--no-litellm-mcp` |
 | PDF reader | PDF/document reading through MCP | `--no-pdf-mcp` |
+| Paper Search | Academic paper search and downloads via `uvx`; pinned to `paper-search-mcp==0.1.4` with `mcp<2` for compatibility; requires internet, no API key required for basic use | `--no-paper-search-mcp` |
 | Playwright | Headless Chromium browser automation | `--no-playwright-mcp` |
 | Coding guidelines | Installs the included `AGENTS.md` | `--no-extension` |
 | Roundtable | Multi-agent debates across several rounds; increases token usage | `--no-roundtable` |
@@ -116,17 +117,28 @@ Setup registers a pinned `oh-my-openagent` plugin (minimum 4.19.4). OpenCode dow
 
 CodeGraph defaults to enabled with automatic provisioning (`[opencode].codegraph.enabled` and `auto_provision` are `true`). OpenAgent downloads its managed CodeGraph binary and initializes the project index at session start; the Dockerfile already provides Node.js 24. The initial download requires network access. If the MCP still shows disabled after provisioning, restart OpenCode so it can detect the binary. Unsupported runtimes, excluded project paths, or failed downloads can leave CodeGraph unavailable without blocking the other agents. Existing explicit CodeGraph settings and disable lists are preserved; set `codegraph.enabled` to `false` to opt out. For manually managed `omo.jsonc`, add these settings inside `[opencode]` yourself.
 
-Restart OpenCode, select Sisyphus, and describe your objective and acceptance criteria in normal chat. Setup disables the faulty Goal hook: OpenAgent 4.19.4 can interpret ordinary messages or expanded commands as objectives and reject them above 2000 characters. Reruns also change an existing `[opencode].goal.enabled` to `false`, backing up the previous JSON configuration. This is a compatibility workaround, not an upstream code fix; dedicated `/goal` continuation is unavailable until a corrected release is verified. Agent orchestration remains available. New configurations default to at most three background tasks. Team Mode/worktrees remain off. Build and Plan remain available.
+Restart OpenCode, select Sisyphus, and describe your objective and acceptance criteria in normal chat. Setup disables the faulty Goal hook: OpenAgent 4.19.4 can interpret ordinary messages or expanded commands as objectives and reject them above 2000 characters. Reruns also change an existing `[opencode].goal.enabled` to `false`, backing up the previous JSON configuration. This is a compatibility workaround, not an upstream code fix; dedicated `/goal` continuation is unavailable until a corrected release is verified. Agent orchestration remains available. New configurations default to at most three background tasks. Team Mode defaults to enabled; existing explicit settings are preserved. Worktrees and tmux visualization are optional and are not enabled by this setup. Build and Plan remain available.
 
 The workspace does not impose any model. Optional `--omo-model litellm/<model-id>` (or `OMO_MODEL`) fills missing agent/category model settings only when explicitly supplied. Existing individual assignments remain intact, including assignments from earlier setup runs. Without it, OpenAgent model selection uses upstream defaults and may require providers you have not configured; selecting a model in the UI does not necessarily configure every subagent. Edit individual assignments in `~/.omo/omo.json` under `[opencode].agents` and `[opencode].categories`.
 
-The helper backs up changed `~/.omo/omo.json` files and preserves custom settings except for the Goal compatibility override. If `~/.omo/omo.jsonc` already exists, setup stops before installation/configuration changes: set `goal.enabled` to `false` manually inside its `[opencode]` object and manage that JSONC configuration manually. The duplicate built-in Context7 MCP is disabled in generated JSON; our existing Context7 option continues to control it. Local workspace-memory remains available.
+The helper backs up changed `~/.omo/omo.json` files and preserves custom settings except for the Goal compatibility override and enforced telemetry opt-out. If `~/.omo/omo.jsonc` already exists, setup stops before installation/configuration changes: set `goal.enabled` to `false` manually inside its `[opencode]` object and manage that JSONC configuration manually. The duplicate built-in Context7 MCP is disabled in generated JSON; our existing Context7 option continues to control it. Local workspace-memory remains available.
 
 `--no-openagent` removes the plugin registration, including the old `oh-my-opencode` package alias, while retaining its settings for reinstallation. The existing OpenCode uninstall also leaves `~/.omo` intact. Home-directory OpenAgent state is not persisted across container recreation; keep durable project notes in the mounted workspace.
 
 Plugin loading and model execution with OpenCode 1.18.30 require a live smoke test; the setup regression suite uses simulated registry and installation commands.
 
 ### Other settings
+
+Telemetry is disabled through the image environment (`DO_NOT_TRACK=1`,
+`OMO_DISABLE_POSTHOG=1`, `OMO_SEND_ANONYMOUS_TELEMETRY=0`,
+`CODEGRAPH_TELEMETRY=0`, `OTEL_SDK_DISABLED=true`). OpenAgent setup also forces
+`[opencode].telemetry` and `[opencode].codegraph.telemetry` to `false`, including
+existing opt-ins. For manually managed JSONC, set these values yourself.
+The VS Code devcontainer settings disable Microsoft and Red Hat telemetry;
+keep `telemetry.telemetryLevel: "off"` in local VS Code user settings as well.
+Rebuild the container to apply the image environment to all processes, and restart
+OpenCode after changing its configuration. These opt-outs apply to tools that
+honor them; they do not block model requests, MCP queries, or package downloads.
 
 | Detail | Behavior |
 |--------|----------|

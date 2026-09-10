@@ -2,6 +2,13 @@
 
 FROM nvidia/cuda:13.3.1-cudnn-devel-ubuntu26.04
 
+# Disable supported telemetry during image builds and in all container processes.
+ENV DO_NOT_TRACK=1 \
+    OMO_DISABLE_POSTHOG=1 \
+    OMO_SEND_ANONYMOUS_TELEMETRY=0 \
+    CODEGRAPH_TELEMETRY=0 \
+    OTEL_SDK_DISABLED=true
+
 # Install uv without installing Python system-wide.
 COPY --from=ghcr.io/astral-sh/uv:0.12.12 /uv /uvx /bin/
 

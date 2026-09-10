@@ -257,6 +257,8 @@ ${BOLD}OPTIONS${RESET}
     --base-url <URL>    LiteLLM proxy base URL (required) (also: LITELLM_BASE_URL env)
     --pdf-mcp           Enable the pdf-reader MCP server (skip prompt)
     --no-pdf-mcp        Disable the pdf-reader MCP server (skip prompt)
+    --paper-search-mcp  Enable academic paper search via uvx (skip prompt)
+    --no-paper-search-mcp Disable academic paper search (skip prompt)
     --playwright-mcp    Enable the Playwright browser automation MCP server (skip prompt)
     --no-playwright-mcp Disable the Playwright browser automation MCP server (skip prompt)
     --litellm-mcp       Enable the LiteLLM MCP gateway (skip prompt)
@@ -299,6 +301,7 @@ DRY_RUN=false
 API_KEY="${LITELLM_API_KEY:-}"
 BASE_URL="${LITELLM_BASE_URL:-}"
 PDF_MCP_FLAG=""
+PAPER_SEARCH_MCP_FLAG=""
 PLAYWRIGHT_MCP_FLAG=""
 LITELLM_MCP_FLAG=""
 EXTENSION_FLAG=""
@@ -307,7 +310,7 @@ CONTEXT7_FLAG=""
 ROUNDTABLE_FLAG=""
 OPENAGENT_FLAG=""
 OMO_MODEL="${OMO_MODEL:-}"
-ADDON_FLAGS=(LSP_FLAG CONTEXT7_FLAG LITELLM_MCP_FLAG PDF_MCP_FLAG PLAYWRIGHT_MCP_FLAG EXTENSION_FLAG ROUNDTABLE_FLAG OPENAGENT_FLAG)
+ADDON_FLAGS=(LSP_FLAG CONTEXT7_FLAG LITELLM_MCP_FLAG PDF_MCP_FLAG PLAYWRIGHT_MCP_FLAG EXTENSION_FLAG ROUNDTABLE_FLAG OPENAGENT_FLAG PAPER_SEARCH_MCP_FLAG)
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -319,6 +322,8 @@ while [[ $# -gt 0 ]]; do
         --base-url) require_value "$@"; BASE_URL="$2"; shift 2 ;;
         --pdf-mcp) set_option PDF_MCP_FLAG yes; shift ;;
         --no-pdf-mcp) set_option PDF_MCP_FLAG no; shift ;;
+        --paper-search-mcp) set_option PAPER_SEARCH_MCP_FLAG yes; shift ;;
+        --no-paper-search-mcp) set_option PAPER_SEARCH_MCP_FLAG no; shift ;;
         --playwright-mcp) set_option PLAYWRIGHT_MCP_FLAG yes; shift ;;
         --no-playwright-mcp) set_option PLAYWRIGHT_MCP_FLAG no; shift ;;
         --litellm-mcp) set_option LITELLM_MCP_FLAG yes; shift ;;
@@ -409,6 +414,7 @@ select_addons() {
         "Custom coding guidelines (AGENTS.md)"
         "Roundtable debate plugin (multiple agents and rounds; higher token usage)"
         "Oh My OpenAgent (orchestration and background subagents)"
+        "Paper Search (academic search and downloads; requires uvx and internet)"
     )
     local preselected=""
     for i in "${!ADDON_FLAGS[@]}"; do
@@ -431,10 +437,12 @@ select_addons() {
         done
     fi
     PDF_MCP_ENABLED=false
+    PAPER_SEARCH_MCP_ENABLED=false
     PLAYWRIGHT_MCP_ENABLED=false
     LITELLM_MCP_ENABLED=false
     EXTENSION_ENABLED=false
     [[ "$PDF_MCP_FLAG" != yes ]] || PDF_MCP_ENABLED=true
+    [[ "$PAPER_SEARCH_MCP_FLAG" != yes ]] || PAPER_SEARCH_MCP_ENABLED=true
     [[ "$PLAYWRIGHT_MCP_FLAG" != yes ]] || PLAYWRIGHT_MCP_ENABLED=true
     [[ "$LITELLM_MCP_FLAG" != yes ]] || LITELLM_MCP_ENABLED=true
     [[ "$EXTENSION_FLAG" != yes ]] || EXTENSION_ENABLED=true
@@ -613,6 +621,7 @@ write_configuration() {
     CONFIG_CONTENT="$(printf '%s' "$EXISTING_CONFIG" | \
         SETUP_API_KEY="$API_KEY" jq --arg base "$BASE_URL" --arg version "$LITELLM_PLUGIN_VER" \
         --argjson pdf "$PDF_MCP_ENABLED" --arg pdf_choice "$PDF_MCP_FLAG" \
+        --argjson paper "$PAPER_SEARCH_MCP_ENABLED" --arg paper_choice "$PAPER_SEARCH_MCP_FLAG" \
         --argjson browser "$PLAYWRIGHT_MCP_ENABLED" --arg browser_choice "$PLAYWRIGHT_MCP_FLAG" \
         --argjson gateway "$LITELLM_MCP_ENABLED" --arg gateway_choice "$LITELLM_MCP_FLAG" \
         --arg roundtable "$ROUNDTABLE_FLAG" --arg roundtable_version "$ROUNDTABLE_PLUGIN_VER" \
@@ -641,6 +650,8 @@ write_configuration() {
         | .provider.litellm.options.baseURL = $base
         | .provider.litellm.options.apiKey = env.SETUP_API_KEY
         | configure("pdf-reader"; $pdf; $pdf_choice; {type: "local", command: ["npx", "-y", "@sylphx/pdf-reader-mcp@latest"], enabled: true})
+        # Paper Search 0.1.4 imports mcp.server.fastmcp, which MCP v2 removed.
+        | configure("paper-search"; $paper; $paper_choice; {type: "local", command: ["uvx", "--with", "mcp<2", "paper-search-mcp==0.1.4"], enabled: true})
         | configure("playwright"; $browser; $browser_choice; {type: "local", command: ["npx", "-y", $browser_spec, "--browser", "chromium", "--headless", "--no-sandbox", "--output-dir", $output], enabled: true})
         | if $browser and (.mcp.playwright.command | type) == "array"
               and (.mcp.playwright.command[2] | type) == "string"

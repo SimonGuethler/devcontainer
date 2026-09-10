@@ -189,6 +189,13 @@ backups=("${CONFIG_FILE}".backup.*)
 [[ ${#backups[@]} -eq 1 ]]
 main_run --no-extension --no-litellm-mcp --no-pdf-mcp
 check '.mcp["litellm-tools"].enabled == false and .mcp["pdf-reader"].enabled == false'
+check '.mcp["paper-search"] == {type: "local", command: ["uvx", "--with", "mcp<2", "paper-search-mcp==0.1.4"], enabled: true}'
+main_run --no-paper-search-mcp
+check '.mcp["paper-search"].enabled == false'
+jq '.mcp["paper-search"].command = ["/custom/uvx", "paper-search-mcp"]' "$CONFIG_FILE" > "${TEST_ROOT}/paper-custom"
+cp "${TEST_ROOT}/paper-custom" "$CONFIG_FILE"
+main_run --paper-search-mcp
+check '.mcp["paper-search"].enabled == true and .mcp["paper-search"].command == ["/custom/uvx", "paper-search-mcp"]'
 check_output
 printf 'PASS: main setup preserves configuration, backs up changes, and disables MCPs\n'
 
@@ -213,7 +220,7 @@ main_run --dry-run --all
 check_output
 printf 'PASS: install/uninstall previews preserve files and never call the network\n'
 
-for feature in lsp context7 pdf-mcp playwright-mcp litellm-mcp extension roundtable openagent; do
+for feature in lsp context7 pdf-mcp playwright-mcp litellm-mcp extension roundtable openagent paper-search-mcp; do
     if main_run "--$feature" "--no-$feature"; then exit 1; fi
     if main_run --all "--no-$feature"; then exit 1; fi
     if main_run "--no-$feature" --all; then exit 1; fi
@@ -271,16 +278,18 @@ command -v script >/dev/null
 printf -v menu_command '%q ' env HOME="$isolated_home" PATH="${TEST_ROOT}/bin:${PATH}" \
     LITELLM_API_KEY=sk-test-only LITELLM_BASE_URL=https://example.invalid/v1 \
     bash "${SCRIPT_DIR}/setup-opencode.sh"
-# Toggle all eight entries off in a real pseudo-terminal.
-{ sleep 1; printf ' \033[B \033[B \033[B \033[B \033[B \033[B \033[B \n'; } |
+# Toggle all nine entries off in a real pseudo-terminal.
+{ sleep 1; printf ' \033[B \033[B \033[B \033[B \033[B \033[B \033[B \033[B \n'; } |
     script -q -e -c "$menu_command" /dev/null > "${TEST_ROOT}/output" 2>&1
 check '.lsp == false and ([.mcp.context7, .mcp.playwright, .mcp["pdf-reader"], .mcp["litellm-tools"]] | all(.enabled == false))'
+check '.mcp["paper-search"].enabled == false'
 check 'all(.plugin[]; startswith("opencode-roundtable") | not)'
 # Accept every preselected entry: previously disabled MCPs must become enabled.
 { sleep 1; printf '\n'; } |
     script -q -e -c "$menu_command" /dev/null > "${TEST_ROOT}/output" 2>&1
 check '.lsp.just == {command: ["just-lsp"], extensions: [".just", ".justfile"]} and ([.mcp.context7, .mcp.playwright, .mcp["pdf-reader"], .mcp["litellm-tools"]] | all(.enabled == true))'
 check '(.plugin | index("opencode-roundtable@0.8.0")) != null'
+check '.mcp["paper-search"].enabled == true'
 check_output
 printf 'PASS: real menu deselects and re-enables existing integrations\n'
 
@@ -300,13 +309,14 @@ main_run --openagent --omo-model litellm/test-model
 check '([.plugin[] | select(startswith("oh-my-openagent@"))] == ["oh-my-openagent@4.19.4"])'
 omo_config="${isolated_home}/.omo/omo.json"
 jq -e '."[opencode]" | (.goal.enabled == false) and (.goal.auto_start == false)
-    and (.team_mode.enabled == false) and .background_task.defaultConcurrency == 3
+    and (.team_mode.enabled == true) and .background_task.defaultConcurrency == 3
     and (.codegraph.enabled == true) and (.codegraph.auto_provision == true)
+    and (.telemetry == false) and (.codegraph.telemetry == false)
     and .agents.sisyphus.model == "litellm/test-model"
     and .agents.explore.model == "litellm/test-model"
     and .categories.quick.model == "litellm/test-model"' "$omo_config" >/dev/null
 jq '."[opencode]".goal.enabled = false | ."[opencode]".background_task.defaultConcurrency = 2
-    | ."[opencode]".codegraph = {enabled: false, auto_provision: false}
+    | ."[opencode]".codegraph = {enabled: false, auto_provision: false, telemetry: false}
     | ."[opencode]".agents.sisyphus.model = "litellm/custom-main"' \
     "$omo_config" > "${TEST_ROOT}/omo-custom"
 cp "${TEST_ROOT}/omo-custom" "$omo_config"
@@ -328,6 +338,21 @@ if main_run --openagent; then exit 1; fi
 cmp -s "$CONFIG_FILE" "${TEST_ROOT}/before-invalid-omo"
 cp "${TEST_ROOT}/omo-before" "$omo_config"
 printf 'PASS: OpenAgent configuration, repeat installation, models, disable, and JSONC preservation\n'
+
+# An explicit telemetry opt-in must be disabled on rerun, including CodeGraph.
+jq '."[opencode]".telemetry = true | ."[opencode]".codegraph.telemetry = true' \
+    "$omo_config" > "${TEST_ROOT}/omo-telemetry"
+cp "${TEST_ROOT}/omo-telemetry" "$omo_config"
+main_run --dry-run --openagent
+cmp -s "$omo_config" "${TEST_ROOT}/omo-telemetry"
+main_run --openagent
+jq -e '."[opencode]" | .telemetry == false and .codegraph.telemetry == false
+    and .codegraph.enabled == false and .agents.sisyphus.model == "litellm/custom-main"' \
+    "$omo_config" >/dev/null
+cp "$omo_config" "${TEST_ROOT}/omo-telemetry-disabled"
+main_run --openagent
+cmp -s "$omo_config" "${TEST_ROOT}/omo-telemetry-disabled"
+printf 'PASS: telemetry opt-ins disabled, preview unchanged, and rerun idempotent\n'
 
 # Migrate previously enabled goal configurations while keeping explicit models.
 jq '."[opencode]".goal.enabled = true' "$omo_config" > "${TEST_ROOT}/omo-old-goal"

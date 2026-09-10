@@ -23,7 +23,7 @@ CONTENT="$(printf '%s' "$EXISTING" | jq -e -s --arg model "$MODEL" '
     if length != 1 or (.[0] | type) != "object" then error("Expected one object") else .[0] end
     | ."[opencode]" = ({
         goal: {enabled: false, auto_start: false, default_max_iterations: 100},
-        team_mode: {enabled: false},
+        team_mode: {enabled: true},
         codegraph: {enabled: true, auto_provision: true},
         background_task: {defaultConcurrency: 3},
         sisyphus_agent: {default_builder_enabled: true, replace_plan: false}
@@ -39,11 +39,12 @@ CONTENT="$(printf '%s' "$EXISTING" | jq -e -s --arg model "$MODEL" '
             | reduce ["visual-engineering", "ultrabrain", "deep", "artistry", "quick", "unspecified-low", "unspecified-high", "writing"][] as $category
                 (.; .categories[$category].model //= $model)
           else . end
-        | .telemetry //= false
+        | .telemetry = false
+        | .codegraph.telemetry = false
       )
   ' 2>/dev/null)" || { printf 'Invalid OpenAgent configuration; no changes made.\n' >&2; exit 1; }
 if [[ "$DRY_RUN" == true ]]; then
-    printf 'Would default CodeGraph to enabled with automatic provisioning, disable the faulty OpenAgent goal hook, bound background concurrency, and preserve existing models.\n'
+    printf 'Would default CodeGraph to enabled with automatic provisioning, disable OpenAgent and CodeGraph telemetry and the faulty goal hook, bound background concurrency, and preserve existing models.\n'
     exit 0
 fi
 mkdir -p "$CONFIG_DIR"
@@ -59,6 +60,7 @@ if [[ ! -f "$CONFIG_FILE" ]] || ! cmp -s "$CONFIG_FILE" <(printf '%s\n' "$CONTEN
     mv -f -- "$TEMP_FILE" "$CONFIG_FILE"
 fi
 printf 'OpenAgent configured. Restart OpenCode and give Sisyphus your task. The faulty /goal continuation hook is disabled.\n'
+printf 'OpenAgent and CodeGraph telemetry are disabled, including previously enabled settings.\n'
 printf 'CodeGraph defaults to enabled with automatic provisioning at session start; existing explicit settings are preserved. After first provisioning, restart OpenCode if its MCP still shows disabled.\n'
 if [[ -z "$MODEL" ]]; then
     printf 'No workspace model defaults applied. Check OpenAgent agent/category assignments; upstream defaults may require other providers.\n'
