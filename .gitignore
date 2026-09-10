@@ -8,6 +8,7 @@
 !.devcontainer/compose.yml
 !.devcontainer/devcontainer.json
 !.devcontainer/setup-opencode.sh
+!.devcontainer/setup-openagent.sh
 !.devcontainer/setup-zsh.sh
 !.devcontainer/setup-opencode-harness.sh
 !.devcontainer/test-opencode-harness.sh

@@ -213,13 +213,13 @@ main_run --dry-run --all
 check_output
 printf 'PASS: install/uninstall previews preserve files and never call the network\n'
 
-for feature in lsp context7 pdf-mcp playwright-mcp litellm-mcp extension roundtable; do
+for feature in lsp context7 pdf-mcp playwright-mcp litellm-mcp extension roundtable openagent; do
     if main_run "--$feature" "--no-$feature"; then exit 1; fi
     if main_run --all "--no-$feature"; then exit 1; fi
     if main_run "--no-$feature" --all; then exit 1; fi
 done
 if main_run --all --uninstall; then exit 1; fi
-for flag in --key --base-url --unknown; do
+for flag in --key --base-url --omo-model --unknown; do
     if main_run "$flag"; then exit 1; fi
 done
 if main_run --install --uninstall; then exit 1; fi
@@ -271,8 +271,8 @@ command -v script >/dev/null
 printf -v menu_command '%q ' env HOME="$isolated_home" PATH="${TEST_ROOT}/bin:${PATH}" \
     LITELLM_API_KEY=sk-test-only LITELLM_BASE_URL=https://example.invalid/v1 \
     bash "${SCRIPT_DIR}/setup-opencode.sh"
-# Toggle all seven entries off in a real pseudo-terminal.
-{ sleep 1; printf ' \033[B \033[B \033[B \033[B \033[B \033[B \n'; } |
+# Toggle all eight entries off in a real pseudo-terminal.
+{ sleep 1; printf ' \033[B \033[B \033[B \033[B \033[B \033[B \033[B \n'; } |
     script -q -e -c "$menu_command" /dev/null > "${TEST_ROOT}/output" 2>&1
 check '.lsp == false and ([.mcp.context7, .mcp.playwright, .mcp["pdf-reader"], .mcp["litellm-tools"]] | all(.enabled == false))'
 check 'all(.plugin[]; startswith("opencode-roundtable") | not)'
@@ -295,6 +295,58 @@ check '([.plugin[] | select(startswith("opencode-plugin-litellm@"))] == ["openco
 main_run --no-roundtable
 check 'all(.plugin[]; startswith("opencode-roundtable") | not)'
 printf 'PASS: Roundtable enable, update, retention, and removal\n'
+
+main_run --openagent --omo-model litellm/test-model
+check '([.plugin[] | select(startswith("oh-my-openagent@"))] == ["oh-my-openagent@4.19.4"])'
+omo_config="${isolated_home}/.omo/omo.json"
+jq -e '."[opencode]" | (.goal.enabled == false) and (.goal.auto_start == false)
+    and (.team_mode.enabled == false) and .background_task.defaultConcurrency == 3
+    and (.codegraph.enabled == true) and (.codegraph.auto_provision == true)
+    and .agents.sisyphus.model == "litellm/test-model"
+    and .agents.explore.model == "litellm/test-model"
+    and .categories.quick.model == "litellm/test-model"' "$omo_config" >/dev/null
+jq '."[opencode]".goal.enabled = false | ."[opencode]".background_task.defaultConcurrency = 2
+    | ."[opencode]".codegraph = {enabled: false, auto_provision: false}
+    | ."[opencode]".agents.sisyphus.model = "litellm/custom-main"' \
+    "$omo_config" > "${TEST_ROOT}/omo-custom"
+cp "${TEST_ROOT}/omo-custom" "$omo_config"
+cp "$omo_config" "${TEST_ROOT}/omo-before"
+main_run --openagent --omo-model litellm/other-model
+cmp -s "$omo_config" "${TEST_ROOT}/omo-before"
+main_run --no-openagent
+check 'all(.plugin[]; startswith("oh-my-openagent") | not)'
+cmp -s "$omo_config" "${TEST_ROOT}/omo-before"
+# An existing JSONC config is never shadowed or overwritten.
+mv "$omo_config" "${omo_config}c"
+if main_run --openagent; then exit 1; fi
+[[ ! -e "$omo_config" ]]
+cmp -s "${omo_config}c" "${TEST_ROOT}/omo-before"
+mv "${omo_config}c" "$omo_config"
+cp "$CONFIG_FILE" "${TEST_ROOT}/before-invalid-omo"
+printf '[]' > "$omo_config"
+if main_run --openagent; then exit 1; fi
+cmp -s "$CONFIG_FILE" "${TEST_ROOT}/before-invalid-omo"
+cp "${TEST_ROOT}/omo-before" "$omo_config"
+printf 'PASS: OpenAgent configuration, repeat installation, models, disable, and JSONC preservation\n'
+
+# Migrate previously enabled goal configurations while keeping explicit models.
+jq '."[opencode]".goal.enabled = true' "$omo_config" > "${TEST_ROOT}/omo-old-goal"
+cp "${TEST_ROOT}/omo-old-goal" "$omo_config"
+main_run --openagent
+jq -e '."[opencode]".goal.enabled == false and ."[opencode]".agents.sisyphus.model == "litellm/custom-main"' "$omo_config" >/dev/null
+[[ -n "$(find "${isolated_home}/.omo" -name 'omo.json.backup.*' -print -quit)" ]]
+# A fresh generic setup must not create model assignments without explicit input.
+env HOME="${TEST_ROOT}/generic-omo" OMO_MODEL='' bash "${SCRIPT_DIR}/setup-openagent.sh" > "${TEST_ROOT}/output" 2>&1
+jq -e '."[opencode]" | (has("agents") | not) and (has("categories") | not) and (.goal.enabled == false)' \
+    "${TEST_ROOT}/generic-omo/.omo/omo.json" >/dev/null
+printf 'PASS: old goal default disabled and generic setup has no model assignments\n'
+
+# Existing installations gain CodeGraph defaults without losing custom options.
+jq '."[opencode]".codegraph = {daemon: false}' "$omo_config" > "${TEST_ROOT}/omo-codegraph"
+cp "${TEST_ROOT}/omo-codegraph" "$omo_config"
+main_run --openagent
+jq -e '."[opencode]".codegraph | .enabled == true and .auto_provision == true and .daemon == false' "$omo_config" >/dev/null
+printf 'PASS: CodeGraph defaults added to existing configurations and explicit opt-outs preserved\n'
 
 # Failed authentication must leave the existing config untouched and must never
 # invoke an installer, npm, or npx.

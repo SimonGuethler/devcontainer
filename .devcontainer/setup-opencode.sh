@@ -269,6 +269,9 @@ ${BOLD}OPTIONS${RESET}
     --no-context7       Disable Context7 documentation MCP (skip prompt)
     --roundtable        Enable Roundtable multi-agent debates (skip prompt)
     --no-roundtable     Remove the Roundtable plugin (skip prompt)
+    --openagent         Enable Oh My OpenAgent orchestration (skip prompt)
+    --no-openagent      Remove Oh My OpenAgent (keep its settings)
+    --omo-model <ID>    Default provider/model for unconfigured OpenAgent roles
     --dry-run           Preview config only (don't write)
     -h, --help          Show this help
 
@@ -302,7 +305,9 @@ EXTENSION_FLAG=""
 LSP_FLAG=""
 CONTEXT7_FLAG=""
 ROUNDTABLE_FLAG=""
-ADDON_FLAGS=(LSP_FLAG CONTEXT7_FLAG LITELLM_MCP_FLAG PDF_MCP_FLAG PLAYWRIGHT_MCP_FLAG EXTENSION_FLAG ROUNDTABLE_FLAG)
+OPENAGENT_FLAG=""
+OMO_MODEL="${OMO_MODEL:-}"
+ADDON_FLAGS=(LSP_FLAG CONTEXT7_FLAG LITELLM_MCP_FLAG PDF_MCP_FLAG PLAYWRIGHT_MCP_FLAG EXTENSION_FLAG ROUNDTABLE_FLAG OPENAGENT_FLAG)
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -326,6 +331,9 @@ while [[ $# -gt 0 ]]; do
         --no-context7) set_option CONTEXT7_FLAG no; shift ;;
         --roundtable) set_option ROUNDTABLE_FLAG yes; shift ;;
         --no-roundtable) set_option ROUNDTABLE_FLAG no; shift ;;
+        --openagent) set_option OPENAGENT_FLAG yes; shift ;;
+        --no-openagent) set_option OPENAGENT_FLAG no; shift ;;
+        --omo-model) require_value "$@"; OMO_MODEL="$2"; shift 2 ;;
         -h|--help) usage ;;
         *) fail "Unknown option: $1" ;;
     esac
@@ -400,6 +408,7 @@ select_addons() {
         "Playwright browser automation (downloads Chromium and system dependencies)"
         "Custom coding guidelines (AGENTS.md)"
         "Roundtable debate plugin (multiple agents and rounds; higher token usage)"
+        "Oh My OpenAgent (orchestration and background subagents)"
     )
     local preselected=""
     for i in "${!ADDON_FLAGS[@]}"; do
@@ -431,6 +440,12 @@ select_addons() {
     [[ "$EXTENSION_FLAG" != yes ]] || EXTENSION_ENABLED=true
 }
 select_addons
+OPENAGENT_SETUP="${SCRIPT_DIR}/setup-openagent.sh"
+if [[ "$OPENAGENT_FLAG" == yes ]]; then
+    [[ -f "$OPENAGENT_SETUP" ]] || fail "Missing ${OPENAGENT_SETUP}"
+    [[ -z "$OMO_MODEL" || "$OMO_MODEL" == */?* ]] || fail "--omo-model requires provider/model."
+    OMO_MODEL="$OMO_MODEL" bash "$OPENAGENT_SETUP" --dry-run
+fi
 
 # Reuse the harness for optional features after writing the provider config.
 # Check its inputs before installation or config replacement can begin.
@@ -453,6 +468,7 @@ if [[ "$DRY_RUN" == true ]]; then
     info "Install OpenCode: $INSTALL; PDF: $PDF_MCP_ENABLED; Playwright: $PLAYWRIGHT_MCP_ENABLED; gateway: $LITELLM_MCP_ENABLED; guidelines: $EXTENSION_ENABLED"
     info "LSP: ${LSP_FLAG:-unchanged}; Context7: ${CONTEXT7_FLAG:-unchanged}"
     info "Roundtable: $ROUNDTABLE_FLAG"
+    info "Oh My OpenAgent: $OPENAGENT_FLAG"
     exit 0
 fi
 
@@ -582,6 +598,16 @@ write_configuration() {
         fi
         info "Pinning opencode-roundtable@${ROUNDTABLE_PLUGIN_VER}"
     fi
+    OPENAGENT_PLUGIN_VER=""
+    if [[ "$OPENAGENT_FLAG" == yes ]]; then
+        OPENAGENT_PLUGIN_VER="$(npm view oh-my-openagent version 2>/dev/null || true)"
+        if [[ ! "$OPENAGENT_PLUGIN_VER" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+                || [[ "$(printf '%s\n' "$OPENAGENT_PLUGIN_VER" 4.19.4 | sort -V | head -n1)" != 4.19.4 ]]; then
+            OPENAGENT_PLUGIN_VER=4.19.4
+            warn "Could not resolve a supported OpenAgent release; pinning ${OPENAGENT_PLUGIN_VER}"
+        fi
+        info "Pinning oh-my-openagent@${OPENAGENT_PLUGIN_VER}"
+    fi
     # Merge only setup-owned fields. Pass the key through the environment rather
     # than command-line arguments, and let jq escape all strings.
     CONFIG_CONTENT="$(printf '%s' "$EXISTING_CONFIG" | \
@@ -590,6 +616,7 @@ write_configuration() {
         --argjson browser "$PLAYWRIGHT_MCP_ENABLED" --arg browser_choice "$PLAYWRIGHT_MCP_FLAG" \
         --argjson gateway "$LITELLM_MCP_ENABLED" --arg gateway_choice "$LITELLM_MCP_FLAG" \
         --arg roundtable "$ROUNDTABLE_FLAG" --arg roundtable_version "$ROUNDTABLE_PLUGIN_VER" \
+        --arg openagent "$OPENAGENT_FLAG" --arg openagent_version "$OPENAGENT_PLUGIN_VER" \
         --arg browser_spec "$PLAYWRIGHT_MCP_SPEC" --arg output "$PLAYWRIGHT_OUTPUT_DIR" '
         def configure($name; $enabled; $choice; $defaults):
             if $choice == "no" then
@@ -606,6 +633,9 @@ write_configuration() {
         | .plugin = (((.plugin // []) | map(select(. != "opencode-plugin-litellm" and (startswith("opencode-plugin-litellm@") | not)))) + ["opencode-plugin-litellm@" + $version])
         | .plugin |= map(select(. != "opencode-roundtable" and (startswith("opencode-roundtable@") | not)))
         | if $roundtable == "yes" then .plugin += ["opencode-roundtable@" + $roundtable_version] else . end
+        | .plugin |= map(select(. != "oh-my-openagent" and (startswith("oh-my-openagent@") | not)
+            and . != "oh-my-opencode" and (startswith("oh-my-opencode@") | not)))
+        | if $openagent == "yes" then .plugin += ["oh-my-openagent@" + $openagent_version] else . end
         | .provider.litellm.npm //= "@ai-sdk/openai-compatible"
         | .provider.litellm.name //= "LiteLLM"
         | .provider.litellm.options.baseURL = $base
@@ -638,6 +668,9 @@ write_configuration() {
     success "Config ready at ${CONFIG_FILE}"
 }
 write_configuration
+if [[ "$OPENAGENT_FLAG" == yes ]]; then
+    OMO_MODEL="$OMO_MODEL" bash "$OPENAGENT_SETUP"
+fi
 
 if [[ ${#HARNESS_ARGS[@]} -gt 0 ]]; then
     print_section "LSP and Documentation Setup"
