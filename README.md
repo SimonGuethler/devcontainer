@@ -36,7 +36,7 @@ bash /workspace/.devcontainer/setup-opencode.sh --install --extension \
 ```
 
 - Use **↑/↓** to navigate, **Space** to toggle add-ons, and **Enter** to confirm.
-- All available add-ons start selected. Unattended runs also enable them by default.
+- All add-ons, including Roundtable, start selected. Unattended runs use the same defaults.
 - Deselect **LiteLLM MCP gateway** if your proxy does not provide it, or add `--no-litellm-mcp` to the command.
 - Playwright downloads Chromium and its system dependencies.
 
@@ -85,6 +85,7 @@ docker compose -f .devcontainer/compose.yml down
 | PDF reader | PDF/document reading through MCP | `--no-pdf-mcp` |
 | Playwright | Headless Chromium browser automation | `--no-playwright-mcp` |
 | Coding guidelines | Installs the included `AGENTS.md` | `--no-extension` |
+| Roundtable | Multi-agent debates across several rounds; increases token usage | `--no-roundtable` |
 
 | Setting | Usage |
 |---------|-------|
@@ -94,6 +95,14 @@ docker compose -f .devcontainer/compose.yml down
 | All flags | Run `bash /workspace/.devcontainer/setup-opencode.sh --help` |
 
 - Explicit enable/disable flags skip the corresponding menu entries.
+- Use `--all` to install/update OpenCode and enable every add-on without prompts. It cannot be combined with `--no-*` or `--uninstall`; credentials are still required. For example, with `LITELLM_API_KEY` and `LITELLM_BASE_URL` set:
+
+  ```sh
+  bash /workspace/.devcontainer/setup-opencode.sh --all
+  ```
+
+- Repeat the installation command with `--install` to update OpenCode and refresh plugin pins without uninstalling. The official installer skips the binary download if the current release is already installed. Restart OpenCode afterward.
+- Setup checks the proxy connection and API key before installation or configuration changes; a failed check aborts setup.
 - Setup uses `opencode-plugin-litellm` for model discovery and metadata from `/v1/models` and `/v1/model/info`.
 - Standard API-key proxies are the intended setup. Custom authentication, certificates, or gateway routes may need manual configuration.
 - `localhost` refers to the container; use an address reachable from inside it.
@@ -104,6 +113,7 @@ docker compose -f .devcontainer/compose.yml down
 |--------|----------|
 | OpenCode config | Written to `~/.config/opencode/opencode.json`; changed files are backed up |
 | Existing settings | Models, other providers, and unrelated settings are preserved; selected add-ons can re-enable existing integrations |
+| Agent colors | Setup supplies blue for Build and orange for Plan when no explicit color exists; custom colors are preserved. Rerun setup and restart OpenCode to apply. |
 | Disable an integration | Use its `--no-*` flag or deselect it in the menu |
 | JSONC config | Existing `opencode.jsonc` files must be edited manually |
 | Local agent and skills | Includes a review agent plus verification, browser-check, and project-memory skills |

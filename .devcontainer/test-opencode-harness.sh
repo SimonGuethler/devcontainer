@@ -154,6 +154,7 @@ for state in enabled disabled; do
     [[ "$state" != disabled ]] || expected=false
     check "(.lsp != false) == $expected and .mcp.context7.enabled == $expected"
     check '.provider.litellm.options.apiKey == "sk-test-only"'
+    check '.agent.build.color == "#60A5FA" and .agent.plan.color == "#FB923C"'
 done
 printf 'PASS: setup entry point enables and disables harness features\n'
 
@@ -166,13 +167,15 @@ main_run() {
 isolated_home="${TEST_ROOT}/main-preservation"
 CONFIG_FILE="${isolated_home}/.config/opencode/opencode.json"
 mkdir -p "$(dirname "$CONFIG_FILE")"
-jq '.mcp.context7.enabled = true | .lsp.just = {command: ["just-lsp"], extensions: [".just", ".justfile"]}' \
+jq '.mcp.context7.enabled = true | .lsp.just = {command: ["just-lsp"], extensions: [".just", ".justfile"]}
+    | .agent = {build: {color: "#123456", model: "custom/model"}, plan: {color: "warning", permission: {edit: "deny"}}}' \
     "${TEST_ROOT}/original.json" > "${TEST_ROOT}/updated-original.json"
 cp "${TEST_ROOT}/updated-original.json" "${TEST_ROOT}/original.json"
 cp "${TEST_ROOT}/original.json" "$CONFIG_FILE"
 main_run --no-extension
 jq -e --slurpfile original "${TEST_ROOT}/original.json" '
     .model == $original[0].model and .lsp == $original[0].lsp
+    and .agent == $original[0].agent
     and .mcp.custom == $original[0].mcp.custom
     and .mcp.context7 == $original[0].mcp.context7
     and (.plugin | index("example@1.0.0") != null)
@@ -205,14 +208,17 @@ check_output
 main_run --dry-run --uninstall
 cmp -s "$CONFIG_FILE" "${TEST_ROOT}/before-dry-run"
 isolated_home="${TEST_ROOT}/fresh-preview"
-main_run --dry-run --install
+main_run --dry-run --all
 [[ ! -e "$isolated_home" && ! -e "${TEST_ROOT}/network-called" ]]
 check_output
 printf 'PASS: install/uninstall previews preserve files and never call the network\n'
 
-for feature in lsp context7 pdf-mcp playwright-mcp litellm-mcp extension; do
+for feature in lsp context7 pdf-mcp playwright-mcp litellm-mcp extension roundtable; do
     if main_run "--$feature" "--no-$feature"; then exit 1; fi
+    if main_run --all "--no-$feature"; then exit 1; fi
+    if main_run "--no-$feature" --all; then exit 1; fi
 done
+if main_run --all --uninstall; then exit 1; fi
 for flag in --key --base-url --unknown; do
     if main_run "$flag"; then exit 1; fi
 done
@@ -237,7 +243,7 @@ printf 'PASS: main argument errors fail cleanly before changes\n'
 isolated_home="${TEST_ROOT}/invalid-main"
 CONFIG_FILE="${isolated_home}/.config/opencode/opencode.json"
 mkdir -p "$(dirname "$CONFIG_FILE")"
-for contents in 'null' '[]' '{} {}' '{"plugin":false}' '{"provider":{"litellm":{"options":false}}}' '{"apiKey":"sk-test-only",'; do
+for contents in 'null' '[]' '{} {}' '{"plugin":false}' '{"agent":false}' '{"agent":{"build":[]}}' '{"agent":{"plan":false}}' '{"provider":{"litellm":{"options":false}}}' '{"apiKey":"sk-test-only",'; do
     printf '%s' "$contents" > "$CONFIG_FILE"
     if main_run --install; then exit 1; fi
     [[ "$(cat "$CONFIG_FILE")" == "$contents" ]]
@@ -258,22 +264,51 @@ main_run
 CONFIG_FILE="${isolated_home}/.config/opencode/opencode.json"
 check '.lsp.just == {command: ["just-lsp"], extensions: [".just", ".justfile"]} and ([.mcp.context7, .mcp.playwright, .mcp["pdf-reader"], .mcp["litellm-tools"]] | all(.enabled == true))'
 [[ -f "${isolated_home}/.config/opencode/AGENTS.md" ]]
-printf 'PASS: unattended setup selects every available add-on\n'
+check '(.plugin | index("opencode-roundtable@0.8.0")) != null'
+printf 'PASS: unattended setup enables every add-on including Roundtable\n'
 
 command -v script >/dev/null
 printf -v menu_command '%q ' env HOME="$isolated_home" PATH="${TEST_ROOT}/bin:${PATH}" \
     LITELLM_API_KEY=sk-test-only LITELLM_BASE_URL=https://example.invalid/v1 \
     bash "${SCRIPT_DIR}/setup-opencode.sh"
-# Toggle all six entries off in a real pseudo-terminal.
-{ sleep 1; printf ' \033[B \033[B \033[B \033[B \033[B \n'; } |
+# Toggle all seven entries off in a real pseudo-terminal.
+{ sleep 1; printf ' \033[B \033[B \033[B \033[B \033[B \033[B \n'; } |
     script -q -e -c "$menu_command" /dev/null > "${TEST_ROOT}/output" 2>&1
 check '.lsp == false and ([.mcp.context7, .mcp.playwright, .mcp["pdf-reader"], .mcp["litellm-tools"]] | all(.enabled == false))'
+check 'all(.plugin[]; startswith("opencode-roundtable") | not)'
 # Accept every preselected entry: previously disabled MCPs must become enabled.
 { sleep 1; printf '\n'; } |
     script -q -e -c "$menu_command" /dev/null > "${TEST_ROOT}/output" 2>&1
 check '.lsp.just == {command: ["just-lsp"], extensions: [".just", ".justfile"]} and ([.mcp.context7, .mcp.playwright, .mcp["pdf-reader"], .mcp["litellm-tools"]] | all(.enabled == true))'
+check '(.plugin | index("opencode-roundtable@0.8.0")) != null'
 check_output
 printf 'PASS: real menu deselects and re-enables existing integrations\n'
+
+# Updating pins must replace old entries, preserve unrelated plugins, and keep
+# Roundtable enabled on subsequent unattended runs without an explicit flag.
+main_run --roundtable
+check '([.plugin[] | select(startswith("opencode-roundtable@"))] == ["opencode-roundtable@0.8.0"])'
+printf '#!/bin/bash\necho 0.9.0\n' > "${TEST_ROOT}/bin/npm"
+main_run
+check '([.plugin[] | select(startswith("opencode-roundtable@"))] == ["opencode-roundtable@0.9.0"])'
+check '([.plugin[] | select(startswith("opencode-plugin-litellm@"))] == ["opencode-plugin-litellm@0.9.0"])'
+main_run --no-roundtable
+check 'all(.plugin[]; startswith("opencode-roundtable") | not)'
+printf 'PASS: Roundtable enable, update, retention, and removal\n'
+
+# Failed authentication must leave the existing config untouched and must never
+# invoke an installer, npm, or npx.
+cp "$CONFIG_FILE" "${TEST_ROOT}/before-auth-failure"
+cat > "${TEST_ROOT}/bin/curl" <<'EOF'
+#!/bin/bash
+[[ "$*" != *opencode.ai/install* ]] || touch "$HOME/unexpected-install"
+exit 22
+EOF
+if main_run --install --roundtable; then exit 1; fi
+cmp -s "$CONFIG_FILE" "${TEST_ROOT}/before-auth-failure"
+[[ ! -e "${isolated_home}/unexpected-install" ]]
+check_output
+printf 'PASS: proxy rejection aborts before configuration or installation\n'
 
 # A signal during the proxy check must remove the credential header file.
 cat > "${TEST_ROOT}/bin/curl" <<'EOF'
@@ -308,7 +343,37 @@ export PATH="$HOME/.opencode/bin:$HOME/custom/bin:$PATH"
 alias oc="$HOME/.opencode/bin/opencode"
 EOF
 cp "${isolated_home}/.zshrc" "${TEST_ROOT}/personal-zshrc"
+# Return a fake installer that replaces an existing executable. All writes stay
+# inside the isolated HOME; no real installer or network access is used.
+cat > "${TEST_ROOT}/bin/curl" <<'EOF'
+#!/bin/bash
+if [[ "$*" == *opencode.ai/install* ]]; then
+    cat <<'INSTALLER'
+mkdir -p "$HOME/.opencode/bin"
+printf '#!/bin/bash\necho updated\n' > "$HOME/.opencode/bin/opencode"
+chmod +x "$HOME/.opencode/bin/opencode"
+echo called >> "$HOME/installer-calls"
+INSTALLER
+fi
+EOF
+main_run --install --roundtable
 main_run --install
+[[ "$(wc -l < "${isolated_home}/installer-calls")" -eq 2 ]]
+[[ "$("${isolated_home}/.opencode/bin/opencode" --version)" == updated ]]
+CONFIG_FILE="${isolated_home}/.config/opencode/opencode.json"
+check '([.plugin[] | select(startswith("opencode-roundtable@"))] | length) == 1'
+printf 'PASS: repeated installation updates the binary without uninstalling\n'
+# A real terminal with no input must not open the menu under --all.
+printf -v all_command '%q ' env HOME="$isolated_home" PATH="${TEST_ROOT}/bin:${PATH}" \
+    LITELLM_API_KEY=sk-test-only LITELLM_BASE_URL=https://example.invalid/v1 \
+    bash "${SCRIPT_DIR}/setup-opencode.sh" --all
+timeout 20s script -q -e -c "$all_command" /dev/null </dev/null > "${TEST_ROOT}/output" 2>&1
+if grep -q 'Optional Add-ons' "${TEST_ROOT}/output"; then exit 1; fi
+[[ "$(wc -l < "${isolated_home}/installer-calls")" -eq 3 ]]
+check '.lsp.just.command == ["just-lsp"] and ([.mcp.context7, .mcp.playwright, .mcp["pdf-reader"], .mcp["litellm-tools"]] | all(.enabled == true))'
+check '(.plugin | index("opencode-roundtable@0.9.0")) != null'
+[[ -f "${isolated_home}/.config/opencode/AGENTS.md" ]]
+printf 'PASS: --all installs and enables every add-on without a terminal prompt\n'
 grep -q '^# BEGIN devcontainer opencode$' "${isolated_home}/.zshrc"
 main_run --uninstall
 cmp -s <(sed '/^$/d' "${isolated_home}/.zshrc") "${TEST_ROOT}/personal-zshrc"

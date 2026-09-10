@@ -3,7 +3,7 @@
 FROM nvidia/cuda:13.3.1-cudnn-devel-ubuntu26.04
 
 # Install uv without installing Python system-wide.
-COPY --from=ghcr.io/astral-sh/uv:0.12.1 /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.12.12 /uv /uvx /bin/
 
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \

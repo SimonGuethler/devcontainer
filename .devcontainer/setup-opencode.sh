@@ -247,10 +247,11 @@ usage() {
     cat <<EOF
 ${BOLD}Usage:${RESET} $0 [OPTIONS]
 
-${BOLD}One-time setup script for OpenCode + LiteLLM proxy.${RESET}
+${BOLD}Install, update, and configure OpenCode + LiteLLM proxy.${RESET}
 
 ${BOLD}OPTIONS${RESET}
-    --install           Install OpenCode if not present
+    --install           Install or update OpenCode to the latest release
+    --all               Install/update OpenCode and enable all add-ons without prompts
     --uninstall         Remove OpenCode installation and all config
     --key <API_KEY>     Your LiteLLM API key (required; also: LITELLM_API_KEY env)
     --base-url <URL>    LiteLLM proxy base URL (required) (also: LITELLM_BASE_URL env)
@@ -266,6 +267,8 @@ ${BOLD}OPTIONS${RESET}
     --no-lsp            Disable native LSP diagnostics (skip prompt)
     --context7          Enable Context7 documentation MCP (skip prompt)
     --no-context7       Disable Context7 documentation MCP (skip prompt)
+    --roundtable        Enable Roundtable multi-agent debates (skip prompt)
+    --no-roundtable     Remove the Roundtable plugin (skip prompt)
     --dry-run           Preview config only (don't write)
     -h, --help          Show this help
 
@@ -287,6 +290,7 @@ set_option() {
 }
 
 INSTALL=false
+ALL=false
 UNINSTALL=false
 DRY_RUN=false
 API_KEY="${LITELLM_API_KEY:-}"
@@ -297,10 +301,13 @@ LITELLM_MCP_FLAG=""
 EXTENSION_FLAG=""
 LSP_FLAG=""
 CONTEXT7_FLAG=""
+ROUNDTABLE_FLAG=""
+ADDON_FLAGS=(LSP_FLAG CONTEXT7_FLAG LITELLM_MCP_FLAG PDF_MCP_FLAG PLAYWRIGHT_MCP_FLAG EXTENSION_FLAG ROUNDTABLE_FLAG)
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --install) INSTALL=true; shift ;;
+        --all) ALL=true; INSTALL=true; shift ;;
         --uninstall) UNINSTALL=true; shift ;;
         --dry-run) DRY_RUN=true; shift ;;
         --key) require_value "$@"; API_KEY="$2"; shift 2 ;;
@@ -317,12 +324,20 @@ while [[ $# -gt 0 ]]; do
         --no-lsp) set_option LSP_FLAG no; shift ;;
         --context7) set_option CONTEXT7_FLAG yes; shift ;;
         --no-context7) set_option CONTEXT7_FLAG no; shift ;;
+        --roundtable) set_option ROUNDTABLE_FLAG yes; shift ;;
+        --no-roundtable) set_option ROUNDTABLE_FLAG no; shift ;;
         -h|--help) usage ;;
         *) fail "Unknown option: $1" ;;
     esac
 done
 
 [[ "$INSTALL" != true || "$UNINSTALL" != true ]] || fail "Choose either --install or --uninstall."
+if [[ "$ALL" == true ]]; then
+    # Reject contradictory --no-* flags regardless of argument order.
+    for flag in "${ADDON_FLAGS[@]}"; do
+        set_option "$flag" yes
+    done
+fi
 if [[ "$UNINSTALL" == true ]]; then
     if [[ "$DRY_RUN" == true ]]; then
         info "Would remove OpenCode installation, configuration, data, and shell PATH entries."
@@ -354,6 +369,9 @@ if ! printf '%s' "$EXISTING_CONFIG" | jq -e -s '
       and ((.provider // {} | has("litellm") | not) or (.provider.litellm | type == "object"))
       and ((.provider.litellm // {} | has("options") | not) or (.provider.litellm.options | type == "object"))
       and ((has("mcp") | not) or (.mcp | type == "object" and all(.[]; type == "object")))
+      and ((has("agent") | not) or (.agent | type == "object"))
+      and ((.agent // {} | has("build") | not) or (.agent.build | type == "object"))
+      and ((.agent // {} | has("plan") | not) or (.agent.plan | type == "object"))
       and ((has("plugin") | not) or (.plugin | type == "array" and all(.[]; type == "string"))))
 ' >/dev/null 2>&1; then
     fail "Invalid OpenCode JSON configuration; no changes made."
@@ -374,7 +392,6 @@ select_addons() {
     [[ "$EXTENSION_FLAG" != yes || "$EXTENSION_AVAILABLE" == true ]] || fail "--extension requires ${AGENTS_SOURCE}."
     [[ "$EXTENSION_AVAILABLE" == true ]] || EXTENSION_FLAG=no
 
-    local -a flags=(LSP_FLAG CONTEXT7_FLAG LITELLM_MCP_FLAG PDF_MCP_FLAG PLAYWRIGHT_MCP_FLAG EXTENSION_FLAG)
     local -a labels=(
         "LSP diagnostics (requires project language servers)"
         "Context7 documentation (queries an external service)"
@@ -382,10 +399,11 @@ select_addons() {
         "PDF / document reading (pdf-reader MCP)"
         "Playwright browser automation (downloads Chromium and system dependencies)"
         "Custom coding guidelines (AGENTS.md)"
+        "Roundtable debate plugin (multiple agents and rounds; higher token usage)"
     )
     local preselected=""
-    for i in "${!flags[@]}"; do
-        variable="${flags[i]}"
+    for i in "${!ADDON_FLAGS[@]}"; do
+        variable="${ADDON_FLAGS[i]}"
         if [[ -z "${!variable}" ]]; then
             preselected+="${#menu_flags[@]} "
             menu_flags+=("$variable")
@@ -434,8 +452,23 @@ if [[ "$DRY_RUN" == true ]]; then
     info "Would merge LiteLLM provider settings and back up changed configuration."
     info "Install OpenCode: $INSTALL; PDF: $PDF_MCP_ENABLED; Playwright: $PLAYWRIGHT_MCP_ENABLED; gateway: $LITELLM_MCP_ENABLED; guidelines: $EXTENSION_ENABLED"
     info "LSP: ${LSP_FLAG:-unchanged}; Context7: ${CONTEXT7_FLAG:-unchanged}"
+    info "Roundtable: $ROUNDTABLE_FLAG"
     exit 0
 fi
+
+# Fail before installation or configuration writes when credentials are rejected
+# or the proxy is unreachable. Keep the key out of command-line arguments.
+print_section "Verifying Proxy Connection"
+AUTH_FILE="$(mktemp)"
+chmod 600 "$AUTH_FILE"
+printf 'Authorization: Bearer %s\n' "${API_KEY}" > "$AUTH_FILE"
+if ! curl -fsS --connect-timeout 5 --max-time 15 "${BASE_URL%/}/models" \
+        -H "@${AUTH_FILE}" -o /dev/null 2>/dev/null; then
+    fail "Proxy verification failed. Check the URL, network/VPN, and API key; nothing was installed or changed."
+fi
+rm -f "$AUTH_FILE"
+AUTH_FILE=""
+success "Proxy reachable and API key accepted"
 
 # Resolve Playwright MCP and its Playwright dependency together. Browser
 # revisions are version-specific, so installing an unrelated playwright@latest
@@ -468,16 +501,10 @@ install_dependencies() {
     if [[ "$INSTALL" == true ]]; then
         print_section "Installing OpenCode"
 
-        if [[ -x "${OPENCODE_BIN_DIR}/opencode" ]]; then
-            info "OpenCode binary already present at ${OPENCODE_BIN_DIR}/opencode"
-        elif command -v opencode &> /dev/null; then
-            info "OpenCode is already installed ($(command -v opencode))"
-        else
-            info "Running official installer..."
-            if ! curl -fsSL https://opencode.ai/install | bash; then
-                error "OpenCode installation command failed"
-                exit 1
-            fi
+        info "Running official installer to install or update OpenCode..."
+        if ! curl -fsSL https://opencode.ai/install | PATH="${OPENCODE_BIN_DIR}:${PATH}" bash -s -- --no-modify-path; then
+            error "OpenCode installation/update command failed"
+            exit 1
         fi
 
         # Always re-assert PATH / symlink. Do not rely on the official installer
@@ -545,6 +572,16 @@ write_configuration() {
     else
         info "Pinning opencode-plugin-litellm@${LITELLM_PLUGIN_VER} (current npm latest)"
     fi
+    ROUNDTABLE_PLUGIN_VER=""
+    if [[ "$ROUNDTABLE_FLAG" == yes ]]; then
+        ROUNDTABLE_PLUGIN_VER="$(npm view opencode-roundtable version 2>/dev/null || true)"
+        if [[ ! "$ROUNDTABLE_PLUGIN_VER" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+                || [[ "$(printf '%s\n' "$ROUNDTABLE_PLUGIN_VER" 0.3.1 | sort -V | head -n1)" != 0.3.1 ]]; then
+            ROUNDTABLE_PLUGIN_VER=0.3.1
+            warn "Could not resolve a supported Roundtable release; pinning ${ROUNDTABLE_PLUGIN_VER}"
+        fi
+        info "Pinning opencode-roundtable@${ROUNDTABLE_PLUGIN_VER}"
+    fi
     # Merge only setup-owned fields. Pass the key through the environment rather
     # than command-line arguments, and let jq escape all strings.
     CONFIG_CONTENT="$(printf '%s' "$EXISTING_CONFIG" | \
@@ -552,6 +589,7 @@ write_configuration() {
         --argjson pdf "$PDF_MCP_ENABLED" --arg pdf_choice "$PDF_MCP_FLAG" \
         --argjson browser "$PLAYWRIGHT_MCP_ENABLED" --arg browser_choice "$PLAYWRIGHT_MCP_FLAG" \
         --argjson gateway "$LITELLM_MCP_ENABLED" --arg gateway_choice "$LITELLM_MCP_FLAG" \
+        --arg roundtable "$ROUNDTABLE_FLAG" --arg roundtable_version "$ROUNDTABLE_PLUGIN_VER" \
         --arg browser_spec "$PLAYWRIGHT_MCP_SPEC" --arg output "$PLAYWRIGHT_OUTPUT_DIR" '
         def configure($name; $enabled; $choice; $defaults):
             if $choice == "no" then
@@ -561,7 +599,13 @@ write_configuration() {
                 | if $choice == "yes" then .mcp[$name].enabled = true else . end
             else . end;
         ."$schema" //= "https://opencode.ai/config.json"
+        # Explicit colors keep Build and Plan distinguishable without relying
+        # on automatic palette assignment. Preserve user-defined agent settings.
+        | .agent.build.color //= "#60A5FA"
+        | .agent.plan.color //= "#FB923C"
         | .plugin = (((.plugin // []) | map(select(. != "opencode-plugin-litellm" and (startswith("opencode-plugin-litellm@") | not)))) + ["opencode-plugin-litellm@" + $version])
+        | .plugin |= map(select(. != "opencode-roundtable" and (startswith("opencode-roundtable@") | not)))
+        | if $roundtable == "yes" then .plugin += ["opencode-roundtable@" + $roundtable_version] else . end
         | .provider.litellm.npm //= "@ai-sdk/openai-compatible"
         | .provider.litellm.name //= "LiteLLM"
         | .provider.litellm.options.baseURL = $base
@@ -599,23 +643,6 @@ if [[ ${#HARNESS_ARGS[@]} -gt 0 ]]; then
     print_section "LSP and Documentation Setup"
     bash "$HARNESS_SOURCE" --config-dir "$CONFIG_DIR" "${HARNESS_ARGS[@]}"
 fi
-
-# ==================== VERIFY PROXY CONNECTION ====================
-# Read the Authorization header from a temp file so the key never shows
-# up in `ps` output.
-print_section "Verifying Proxy Connection"
-AUTH_FILE="$(mktemp)"
-chmod 600 "$AUTH_FILE"
-printf 'Authorization: Bearer %s\n' "${API_KEY}" > "$AUTH_FILE"
-if curl -fsS --connect-timeout 5 --max-time 15 "${BASE_URL}/models" \
-        -H "@${AUTH_FILE}" -o /dev/null 2>/dev/null; then
-    success "Proxy reachable and API key accepted (${BASE_URL}/models)"
-else
-    warn "Could not reach ${BASE_URL}/models with this key"
-    warn "Check your network/VPN and that the key is valid — OpenCode will still start, models just won't load."
-fi
-rm -f "$AUTH_FILE"
-AUTH_FILE=""
 
 # ==================== CUSTOM EXTENSION ====================
 # Decided in the add-ons checklist above (or via --extension / --no-extension).
