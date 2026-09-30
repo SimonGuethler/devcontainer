@@ -11,8 +11,17 @@
 !.devcontainer/setup-openagent.sh
 !.devcontainer/setup-zsh.sh
 !.devcontainer/setup-opencode-harness.sh
+!.devcontainer/setup-opencode-cli.sh
 !.devcontainer/test-opencode-harness.sh
 !.devcontainer/opencode/
+!.devcontainer/opencode/playwright-cli.config.json
+!.devcontainer/opencode/optional-skills/
+!.devcontainer/opencode/optional-skills/playwright-cli/
+!.devcontainer/opencode/optional-skills/playwright-cli/SKILL.md
+!.devcontainer/opencode/optional-skills/playwright-cli/scripts/
+!.devcontainer/opencode/optional-skills/playwright-cli/scripts/run.sh
+!.devcontainer/opencode/optional-skills/paper-search/
+!.devcontainer/opencode/optional-skills/paper-search/SKILL.md
 !.devcontainer/opencode/agents/
 !.devcontainer/opencode/agents/workspace-review.md
 !.devcontainer/opencode/skills/

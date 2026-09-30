@@ -168,7 +168,8 @@ if command -v opencode >/dev/null 2>&1; then
 fi
 
 opencode_path_reload_command() {
-    case "${SHELL##*/}" in
+    local shell_name="${SHELL:-}"
+    case "${shell_name##*/}" in
         zsh)  echo "source ~/.zshrc && rehash" ;;
         bash) echo "source ~/.bashrc && hash -r" ;;
         *)    echo "$OPENCODE_PATH_EXPORT" ;;
@@ -257,10 +258,14 @@ ${BOLD}OPTIONS${RESET}
     --base-url <URL>    LiteLLM proxy base URL (required) (also: LITELLM_BASE_URL env)
     --pdf-mcp           Enable the pdf-reader MCP server (skip prompt)
     --no-pdf-mcp        Disable the pdf-reader MCP server (skip prompt)
-    --paper-search-mcp  Enable academic paper search via uvx (skip prompt)
+    --paper-search      Enable Paper Search CLI + skill (default)
+    --no-paper-search   Disable Paper Search integration
+    --paper-search-mcp  Use the Paper Search MCP server instead of the CLI
     --no-paper-search-mcp Disable academic paper search (skip prompt)
-    --playwright-mcp    Enable the Playwright browser automation MCP server (skip prompt)
-    --no-playwright-mcp Disable the Playwright browser automation MCP server (skip prompt)
+    --playwright        Enable Playwright CLI + skill (default)
+    --no-playwright     Disable Playwright integration
+    --playwright-mcp    Use the Playwright MCP server instead of the CLI
+    --no-playwright-mcp Alias for --no-playwright
     --litellm-mcp       Enable the LiteLLM MCP gateway (skip prompt)
     --no-litellm-mcp    Disable the LiteLLM MCP gateway (skip prompt)
     --extension         Install the custom coding guidelines (AGENTS.md) (skip prompt)
@@ -270,10 +275,11 @@ ${BOLD}OPTIONS${RESET}
     --context7          Enable Context7 documentation MCP (skip prompt)
     --no-context7       Disable Context7 documentation MCP (skip prompt)
     --roundtable        Enable Roundtable multi-agent debates (skip prompt)
+    --roundtable-mode <light|standard|heavy|free> Enable Roundtable with this preset
     --no-roundtable     Remove the Roundtable plugin (skip prompt)
     --openagent         Enable Oh My OpenAgent orchestration (skip prompt)
     --no-openagent      Remove Oh My OpenAgent (keep its settings)
-    --omo-model <ID>    Default provider/model for unconfigured OpenAgent roles
+    --omo-model <ID>    Set provider/model for all built-in OpenAgent roles, including existing ones
     --dry-run           Preview config only (don't write)
     -h, --help          Show this help
 
@@ -308,6 +314,7 @@ EXTENSION_FLAG=""
 LSP_FLAG=""
 CONTEXT7_FLAG=""
 ROUNDTABLE_FLAG=""
+ROUNDTABLE_MODE=""
 OPENAGENT_FLAG=""
 OMO_MODEL="${OMO_MODEL:-}"
 ADDON_FLAGS=(LSP_FLAG CONTEXT7_FLAG LITELLM_MCP_FLAG PDF_MCP_FLAG PLAYWRIGHT_MCP_FLAG EXTENSION_FLAG ROUNDTABLE_FLAG OPENAGENT_FLAG PAPER_SEARCH_MCP_FLAG)
@@ -322,10 +329,12 @@ while [[ $# -gt 0 ]]; do
         --base-url) require_value "$@"; BASE_URL="$2"; shift 2 ;;
         --pdf-mcp) set_option PDF_MCP_FLAG yes; shift ;;
         --no-pdf-mcp) set_option PDF_MCP_FLAG no; shift ;;
-        --paper-search-mcp) set_option PAPER_SEARCH_MCP_FLAG yes; shift ;;
-        --no-paper-search-mcp) set_option PAPER_SEARCH_MCP_FLAG no; shift ;;
-        --playwright-mcp) set_option PLAYWRIGHT_MCP_FLAG yes; shift ;;
-        --no-playwright-mcp) set_option PLAYWRIGHT_MCP_FLAG no; shift ;;
+        --paper-search) set_option PAPER_SEARCH_MCP_FLAG yes; shift ;;
+        --paper-search-mcp) set_option PAPER_SEARCH_MCP_FLAG mcp; shift ;;
+        --no-paper-search|--no-paper-search-mcp) set_option PAPER_SEARCH_MCP_FLAG no; shift ;;
+        --playwright) set_option PLAYWRIGHT_MCP_FLAG yes; shift ;;
+        --playwright-mcp) set_option PLAYWRIGHT_MCP_FLAG mcp; shift ;;
+        --no-playwright|--no-playwright-mcp) set_option PLAYWRIGHT_MCP_FLAG no; shift ;;
         --litellm-mcp) set_option LITELLM_MCP_FLAG yes; shift ;;
         --no-litellm-mcp) set_option LITELLM_MCP_FLAG no; shift ;;
         --extension) set_option EXTENSION_FLAG yes; shift ;;
@@ -335,6 +344,15 @@ while [[ $# -gt 0 ]]; do
         --context7) set_option CONTEXT7_FLAG yes; shift ;;
         --no-context7) set_option CONTEXT7_FLAG no; shift ;;
         --roundtable) set_option ROUNDTABLE_FLAG yes; shift ;;
+        --roundtable-mode)
+            require_value "$@"
+            case "$2" in
+                light|standard|heavy|free) ;;
+                *) fail "--roundtable-mode must be light, standard, heavy, or free." ;;
+            esac
+            set_option ROUNDTABLE_FLAG yes
+            set_option ROUNDTABLE_MODE "$2"
+            shift 2 ;;
         --no-roundtable) set_option ROUNDTABLE_FLAG no; shift ;;
         --openagent) set_option OPENAGENT_FLAG yes; shift ;;
         --no-openagent) set_option OPENAGENT_FLAG no; shift ;;
@@ -385,7 +403,11 @@ if ! printf '%s' "$EXISTING_CONFIG" | jq -e -s '
       and ((has("agent") | not) or (.agent | type == "object"))
       and ((.agent // {} | has("build") | not) or (.agent.build | type == "object"))
       and ((.agent // {} | has("plan") | not) or (.agent.plan | type == "object"))
-      and ((has("plugin") | not) or (.plugin | type == "array" and all(.[]; type == "string"))))
+      and ((has("disabled_providers") | not) or (.disabled_providers | type == "array" and all(.[]; type == "string")))
+      and ((has("plugin") | not) or (.plugin | type == "array" and all(.[];
+        if type == "string" then true
+        elif type == "array" then length == 2 and (.[0] | type == "string") and (.[1] | type == "object")
+        else false end))))
 ' >/dev/null 2>&1; then
     fail "Invalid OpenCode JSON configuration; no changes made."
 fi
@@ -410,11 +432,11 @@ select_addons() {
         "Context7 documentation (queries an external service)"
         "LiteLLM MCP gateway (MCP tools registered on the proxy)"
         "PDF / document reading (pdf-reader MCP)"
-        "Playwright browser automation (downloads Chromium and system dependencies)"
+        "Playwright CLI + skill (downloads Chromium and system dependencies)"
         "Custom coding guidelines (AGENTS.md)"
         "Roundtable debate plugin (multiple agents and rounds; higher token usage)"
         "Oh My OpenAgent (orchestration and background subagents)"
-        "Paper Search (academic search and downloads; requires uvx and internet)"
+        "Paper Search CLI + skill (academic search and downloads; requires uvx and internet)"
     )
     local preselected=""
     for i in "${!ADDON_FLAGS[@]}"; do
@@ -442,12 +464,16 @@ select_addons() {
     LITELLM_MCP_ENABLED=false
     EXTENSION_ENABLED=false
     [[ "$PDF_MCP_FLAG" != yes ]] || PDF_MCP_ENABLED=true
-    [[ "$PAPER_SEARCH_MCP_FLAG" != yes ]] || PAPER_SEARCH_MCP_ENABLED=true
-    [[ "$PLAYWRIGHT_MCP_FLAG" != yes ]] || PLAYWRIGHT_MCP_ENABLED=true
+    [[ "$PAPER_SEARCH_MCP_FLAG" != mcp ]] || PAPER_SEARCH_MCP_ENABLED=true
+    [[ "$PLAYWRIGHT_MCP_FLAG" != mcp ]] || PLAYWRIGHT_MCP_ENABLED=true
     [[ "$LITELLM_MCP_FLAG" != yes ]] || LITELLM_MCP_ENABLED=true
     [[ "$EXTENSION_FLAG" != yes ]] || EXTENSION_ENABLED=true
 }
 select_addons
+CLI_SETUP="${SCRIPT_DIR}/setup-opencode-cli.sh"
+[[ -f "$CLI_SETUP" ]] || fail "Missing ${CLI_SETUP}"
+CLI_ARGS=(--config-dir "$CONFIG_DIR" --playwright "$PLAYWRIGHT_MCP_FLAG" --paper-search "$PAPER_SEARCH_MCP_FLAG")
+bash "$CLI_SETUP" "${CLI_ARGS[@]}" --dry-run
 OPENAGENT_SETUP="${SCRIPT_DIR}/setup-openagent.sh"
 if [[ "$OPENAGENT_FLAG" == yes ]]; then
     [[ -f "$OPENAGENT_SETUP" ]] || fail "Missing ${OPENAGENT_SETUP}"
@@ -473,9 +499,11 @@ fi
 # Preview before registry queries, installation, cache changes, or config writes.
 if [[ "$DRY_RUN" == true ]]; then
     info "Would merge LiteLLM provider settings and back up changed configuration."
-    info "Install OpenCode: $INSTALL; PDF: $PDF_MCP_ENABLED; Playwright: $PLAYWRIGHT_MCP_ENABLED; gateway: $LITELLM_MCP_ENABLED; guidelines: $EXTENSION_ENABLED"
+    info "Install OpenCode: $INSTALL; PDF: $PDF_MCP_ENABLED; gateway: $LITELLM_MCP_ENABLED; guidelines: $EXTENSION_ENABLED"
     info "LSP: ${LSP_FLAG:-unchanged}; Context7: ${CONTEXT7_FLAG:-unchanged}"
     info "Roundtable: $ROUNDTABLE_FLAG"
+    [[ -z "$ROUNDTABLE_MODE" ]] || info "Roundtable mode: $ROUNDTABLE_MODE"
+    info "OpenCode Zen: disabled"
     info "Oh My OpenAgent: $OPENAGENT_FLAG"
     exit 0
 fi
@@ -571,6 +599,7 @@ install_dependencies() {
 
 }
 install_dependencies
+bash "$CLI_SETUP" "${CLI_ARGS[@]}"
 
 write_configuration() {
     # Resolve the plugin version and merge configuration.
@@ -621,10 +650,12 @@ write_configuration() {
     CONFIG_CONTENT="$(printf '%s' "$EXISTING_CONFIG" | \
         SETUP_API_KEY="$API_KEY" jq --arg base "$BASE_URL" --arg version "$LITELLM_PLUGIN_VER" \
         --argjson pdf "$PDF_MCP_ENABLED" --arg pdf_choice "$PDF_MCP_FLAG" \
-        --argjson paper "$PAPER_SEARCH_MCP_ENABLED" --arg paper_choice "$PAPER_SEARCH_MCP_FLAG" \
-        --argjson browser "$PLAYWRIGHT_MCP_ENABLED" --arg browser_choice "$PLAYWRIGHT_MCP_FLAG" \
+        --arg pdf_spec "@sylphx/pdf-reader-mcp@4.1.3" \
+        --argjson paper "$PAPER_SEARCH_MCP_ENABLED" --arg paper_choice "$(if [[ "$PAPER_SEARCH_MCP_ENABLED" == true ]]; then echo yes; else echo no; fi)" \
+        --argjson browser "$PLAYWRIGHT_MCP_ENABLED" --arg browser_choice "$(if [[ "$PLAYWRIGHT_MCP_ENABLED" == true ]]; then echo yes; else echo no; fi)" \
         --argjson gateway "$LITELLM_MCP_ENABLED" --arg gateway_choice "$LITELLM_MCP_FLAG" \
         --arg roundtable "$ROUNDTABLE_FLAG" --arg roundtable_version "$ROUNDTABLE_PLUGIN_VER" \
+        --arg roundtable_mode "$ROUNDTABLE_MODE" \
         --arg openagent "$OPENAGENT_FLAG" --arg openagent_version "$OPENAGENT_PLUGIN_VER" \
         --arg browser_spec "$PLAYWRIGHT_MCP_SPEC" --arg output "$PLAYWRIGHT_OUTPUT_DIR" '
         def configure($name; $enabled; $choice; $defaults):
@@ -634,22 +665,33 @@ write_configuration() {
                 .mcp[$name] = ($defaults * (.mcp[$name] // {}))
                 | if $choice == "yes" then .mcp[$name].enabled = true else . end
             else . end;
+        def plugin_name: if type == "array" then .[0] else . end;
+        def is_plugin($name): plugin_name | . == $name or startswith($name + "@");
         ."$schema" //= "https://opencode.ai/config.json"
+        | .disabled_providers = ((.disabled_providers // []) + ["opencode"] | unique)
         # Explicit colors keep Build and Plan distinguishable without relying
         # on automatic palette assignment. Preserve user-defined agent settings.
         | .agent.build.color //= "#60A5FA"
         | .agent.plan.color //= "#FB923C"
-        | .plugin = (((.plugin // []) | map(select(. != "opencode-plugin-litellm" and (startswith("opencode-plugin-litellm@") | not)))) + ["opencode-plugin-litellm@" + $version])
-        | .plugin |= map(select(. != "opencode-roundtable" and (startswith("opencode-roundtable@") | not)))
-        | if $roundtable == "yes" then .plugin += ["opencode-roundtable@" + $roundtable_version] else . end
-        | .plugin |= map(select(. != "oh-my-openagent" and (startswith("oh-my-openagent@") | not)
-            and . != "oh-my-opencode" and (startswith("oh-my-opencode@") | not)))
+        | .plugin = (((.plugin // []) | map(select(is_plugin("opencode-plugin-litellm") | not))) + ["opencode-plugin-litellm@" + $version])
+        | ([.plugin[] | select(is_plugin("opencode-roundtable")) | select(type == "array") | .[1]] | last // {}) as $roundtable_options
+        | .plugin |= map(select(is_plugin("opencode-roundtable") | not))
+        | if $roundtable == "yes" then
+            ($roundtable_options | if $roundtable_mode != "" then .mode = $roundtable_mode else . end) as $options
+            | .plugin += [if $options == {} then "opencode-roundtable@" + $roundtable_version
+                          else ["opencode-roundtable@" + $roundtable_version, $options] end]
+          else . end
+        | .plugin |= map(select((is_plugin("oh-my-openagent") or is_plugin("oh-my-opencode")) | not))
         | if $openagent == "yes" then .plugin += ["oh-my-openagent@" + $openagent_version] else . end
         | .provider.litellm.npm //= "@ai-sdk/openai-compatible"
         | .provider.litellm.name //= "LiteLLM"
         | .provider.litellm.options.baseURL = $base
         | .provider.litellm.options.apiKey = env.SETUP_API_KEY
-        | configure("pdf-reader"; $pdf; $pdf_choice; {type: "local", command: ["npx", "-y", "@sylphx/pdf-reader-mcp@latest"], enabled: true})
+        # Migrate only the old workspace default; preserve custom commands.
+        | if $pdf and .mcp["pdf-reader"].command == ["npx", "-y", "@sylphx/pdf-reader-mcp@latest"] then
+            .mcp["pdf-reader"].command = ["npx", "-y", $pdf_spec]
+          else . end
+        | configure("pdf-reader"; $pdf; $pdf_choice; {type: "local", command: ["npx", "-y", $pdf_spec], enabled: true})
         # Paper Search 0.1.4 imports mcp.server.fastmcp, which MCP v2 removed.
         | configure("paper-search"; $paper; $paper_choice; {type: "local", command: ["uvx", "--with", "mcp<2", "paper-search-mcp==0.1.4"], enabled: true})
         | configure("playwright"; $browser; $browser_choice; {type: "local", command: ["npx", "-y", $browser_spec, "--browser", "chromium", "--headless", "--no-sandbox", "--output-dir", $output], enabled: true})

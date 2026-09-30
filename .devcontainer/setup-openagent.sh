@@ -35,16 +35,21 @@ CONTENT="$(printf '%s' "$EXISTING" | jq -e -s --arg model "$MODEL" '
         | .disabled_mcps = (((.disabled_mcps // []) + ["context7"]) | unique)
         | if $model != "" then
             reduce ["sisyphus", "hephaestus", "prometheus", "oracle", "librarian", "explore", "multimodal-looker", "metis", "momus", "atlas", "sisyphus-junior"][] as $agent
-                (.; .agents[$agent].model //= $model)
+                (.; .agents[$agent].model = $model)
             | reduce ["visual-engineering", "ultrabrain", "deep", "artistry", "quick", "unspecified-low", "unspecified-high", "writing"][] as $category
-                (.; .categories[$category].model //= $model)
+                (.; .categories[$category].model = $model)
           else . end
         | .telemetry = false
         | .codegraph.telemetry = false
       )
   ' 2>/dev/null)" || { printf 'Invalid OpenAgent configuration; no changes made.\n' >&2; exit 1; }
 if [[ "$DRY_RUN" == true ]]; then
-    printf 'Would default CodeGraph to enabled with automatic provisioning, disable OpenAgent and CodeGraph telemetry and the faulty goal hook, bound background concurrency, and preserve existing models.\n'
+    printf 'Would default CodeGraph to enabled with automatic provisioning, disable OpenAgent and CodeGraph telemetry and the faulty goal hook, and bound background concurrency.\n'
+    if [[ -n "$MODEL" ]]; then
+        printf 'Would switch built-in OpenAgent agent/category models to %s.\n' "$MODEL"
+    else
+        printf 'Would preserve existing model assignments.\n'
+    fi
     exit 0
 fi
 mkdir -p "$CONFIG_DIR"
@@ -64,4 +69,6 @@ printf 'OpenAgent and CodeGraph telemetry are disabled, including previously ena
 printf 'CodeGraph defaults to enabled with automatic provisioning at session start; existing explicit settings are preserved. After first provisioning, restart OpenCode if its MCP still shows disabled.\n'
 if [[ -z "$MODEL" ]]; then
     printf 'No workspace model defaults applied. Check OpenAgent agent/category assignments; upstream defaults may require other providers.\n'
+else
+    printf 'Built-in OpenAgent agent/category models set to %s. Restart OpenCode to apply the change.\n' "$MODEL"
 fi

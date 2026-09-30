@@ -35,6 +35,11 @@ otherwise. Scale planning, tool use, and verification to the task.
   without a reason.
 - Consult current official documentation for unfamiliar or version-sensitive
   APIs. Match the project's installed version; do not invent APIs or tool flags.
+- For unfamiliar errors or stalled debugging, search online for the exact error
+  and relevant versions before spending time on speculative fixes. Prefer
+  official documentation and upstream issues; verify that suggested solutions
+  apply to the local code and environment. Keep secrets and private code out of
+  search queries. Skip research when local evidence already establishes the fix.
 - Use language-server diagnostics, compiler errors, and test failures as feedback.
   Batch independent reads when supported; keep dependent changes sequential.
 - Delegate only when supported and useful for a bounded independent task. Keep
@@ -72,6 +77,12 @@ otherwise. Scale planning, tool use, and verification to the task.
 - Run relevant tests, lint, type checks, or builds. For script-only changes,
   check syntax and exercise affected behavior with temporary files and dummy
   credentials. Do not run installers against real user configuration as a test.
+- During iteration, prefer fast checks and focused tests for affected behavior.
+  Defer expensive full suites, integration runs, and production builds until the
+  change is ready for final validation, unless needed earlier to reproduce a
+  failure or address significant risk. Run required checks before handing off;
+  repeat expensive checks only when subsequent changes could affect their result
+  or unresolved failures require it.
 - For UI changes, inspect the affected browser flow when available. Distinguish
   browser verification from static checks and screenshots from interaction tests.
 - Inspect the final diff for scope, accidental changes, and exposed secrets.

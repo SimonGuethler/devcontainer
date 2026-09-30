@@ -52,6 +52,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # Node.js (current LTS, official nodejs.org binary, including npm).
+# Intentionally track v24 updates so fresh builds receive LTS fixes.
 # Resolve the version from SHASUMS256.txt in the latest-v24.x directory and
 # verify it with SHA-256; no third-party curl-to-shell installer is used.
 RUN NODE_DIST="https://nodejs.org/dist/latest-v24.x" \
@@ -72,30 +73,47 @@ RUN npm install --global "pyright@${PYRIGHT_VERSION}" \
     && pyright --version
 
 # Install the Rust toolchain (rustc, cargo, clippy, rustfmt, rust-analyzer) system-wide.
+# Intentionally track stable for this development image; projects can pin their
+# own toolchain with rust-toolchain.toml.
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
     PATH=/usr/local/cargo/bin:$PATH
 RUN curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs \
-    | sh -s -- -y --no-modify-path --profile default \
+    | sh -s -- -y --no-modify-path --profile default --default-toolchain stable \
         --component clippy,rustfmt,rust-analyzer \
     && chmod -R a+w "$RUSTUP_HOME" "$CARGO_HOME" \
     && rustc --version \
     && cargo --version
 
 # Install just and just-lsp as prebuilt binaries (faster than cargo install).
+# SHA-256 digests are from the GitHub release assets; update with each version.
 ARG JUST_VERSION=1.57.0
+ARG JUST_SHA256=45b548094283cb9739af8f13273b8cddeee869f5b4ef2bb631b1f311cb566155
 ARG JUST_LSP_VERSION=0.6.1
+ARG JUST_LSP_SHA256=0fc4680d5c19a94a3b133bc1de479f5bf9cc23dd5ef1283863c9b2c083b62820
 # The archives place the binaries at their root, but just-lsp uses a "./"
 # prefix. --wildcards and --strip-components handle both layouts.
 RUN curl -fsSL "https://github.com/casey/just/releases/download/${JUST_VERSION}/just-${JUST_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
-        | tar -xz -C /usr/local/bin --wildcards --strip-components=0 '*just' \
+        -o /tmp/just.tar.gz \
+    && printf '%s  %s\n' "$JUST_SHA256" /tmp/just.tar.gz | sha256sum -c - \
+    && tar -xzf /tmp/just.tar.gz -C /usr/local/bin --wildcards --strip-components=0 '*just' \
     && curl -fsSL "https://github.com/terror/just-lsp/releases/download/${JUST_LSP_VERSION}/just-lsp-${JUST_LSP_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
-        | tar -xz -C /usr/local/bin --wildcards --strip-components=0 '*just-lsp' \
+        -o /tmp/just-lsp.tar.gz \
+    && printf '%s  %s\n' "$JUST_LSP_SHA256" /tmp/just-lsp.tar.gz | sha256sum -c - \
+    && tar -xzf /tmp/just-lsp.tar.gz -C /usr/local/bin --wildcards --strip-components=0 '*just-lsp' \
     && chmod +x /usr/local/bin/just /usr/local/bin/just-lsp \
+    && rm -f /tmp/just.tar.gz /tmp/just-lsp.tar.gz \
     && just --version \
     && just-lsp --version
 
-RUN curl -fsSL https://getcroc.com | bash \
+ARG CROC_VERSION=11.5.2
+ARG CROC_SHA256=8048f12941c68ccb1f35812a73e18b14fd39278c23fa73efca6b0478003f6fc1
+RUN curl -fsSL "https://github.com/schollz/croc/releases/download/v${CROC_VERSION}/croc_v${CROC_VERSION}_Linux-64bit.tar.gz" \
+        -o /tmp/croc.tar.gz \
+    && printf '%s  %s\n' "$CROC_SHA256" /tmp/croc.tar.gz | sha256sum -c - \
+    && tar -xzf /tmp/croc.tar.gz -C /usr/local/bin croc \
+    && chmod +x /usr/local/bin/croc \
+    && rm -f /tmp/croc.tar.gz \
     && croc --version
 
 # Prevent hard-link warnings between the uv cache and mounted repositories.

@@ -10,7 +10,7 @@
     // (https://blog.antosubash.com/posts/setup-zsh-and-oh-my-zsh).
     // Also sync local OpenCode agents and skills after mounting. Both setup
     // commands can be rerun manually without provider credentials.
-    "postCreateCommand": "sh /workspace/.devcontainer/setup-zsh.sh && bash /workspace/.devcontainer/setup-opencode-harness.sh && apt-get install -y xvfb libgl1 mesa-utils",
+    "postCreateCommand": "sh /workspace/.devcontainer/setup-zsh.sh && bash /workspace/.devcontainer/setup-opencode-harness.sh",
 
     "customizations": {
         "vscode": {

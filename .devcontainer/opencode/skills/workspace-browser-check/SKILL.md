@@ -1,6 +1,6 @@
 ---
 name: workspace-browser-check
-description: Verify a changed local frontend flow using the devcontainer's optional Playwright MCP, including browser-visible errors and interaction checks.
+description: Verify a changed local frontend flow using the devcontainer's optional Playwright CLI, including browser-visible errors and interaction checks.
 ---
 
 # Local browser verification
@@ -9,9 +9,11 @@ Read the target project's start command and prerequisites. Use its documented
 local services and test data. The browser runs inside the container: localhost
 refers to the container, not the host computer.
 
-Check whether Playwright MCP tools are available before relying on them. If
-missing, report the limitation; setup supports `--playwright-mcp`, but rerunning
-the proxy installer rewrites its config and must not be an automatic test step.
+Use the `playwright-cli` skill when installed. It provides the container launch
+settings and session commands. If explicitly configured in MCP mode, use the
+available Playwright MCP tools instead. If neither is available, report the
+limitation; setup supports `--playwright`, but rerunning the proxy installer must
+not be an automatic test step.
 
 Start only needed services; record their process/session identifiers. Wait for
 readiness using a bounded check. Use accessibility snapshots and stable role/name

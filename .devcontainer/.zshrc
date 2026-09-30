@@ -13,10 +13,9 @@ plugins=(
   copypath
   sudo
   zsh-autosuggestions
-  zsh-syntax-highlighting
   colored-man-pages
   history-substring-search
-  command-not-found
+  zsh-syntax-highlighting
 )
 
 source $ZSH/oh-my-zsh.sh

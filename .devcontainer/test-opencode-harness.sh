@@ -10,6 +10,25 @@ trap 'printf "FAIL at line %s\n" "$LINENO" >&2' ERR
 command -v jq >/dev/null
 shopt -s nullglob
 
+# Exercise reload hints without running setup or touching user configuration.
+(
+    # shellcheck disable=SC1090 # Load only the helper, without executing setup.
+    source <(sed -n '/^opencode_path_reload_command() {$/,/^}$/p' "${SCRIPT_DIR}/setup-opencode.sh")
+    # shellcheck disable=SC2016
+    OPENCODE_PATH_EXPORT='export PATH="$HOME/.opencode/bin:$PATH"'
+    unset SHELL
+    [[ "$(opencode_path_reload_command)" == "$OPENCODE_PATH_EXPORT" ]]
+    SHELL=''
+    [[ "$(opencode_path_reload_command)" == "$OPENCODE_PATH_EXPORT" ]]
+    SHELL=/bin/zsh
+    [[ "$(opencode_path_reload_command)" == 'source ~/.zshrc && rehash' ]]
+    SHELL=/bin/bash
+    [[ "$(opencode_path_reload_command)" == 'source ~/.bashrc && hash -r' ]]
+    SHELL=/bin/fish
+    [[ "$(opencode_path_reload_command)" == "$OPENCODE_PATH_EXPORT" ]]
+)
+printf 'PASS: reload hints handle unset, empty, and supported shell values\n'
+
 fixture() {
     CONFIG_DIR="${TEST_ROOT}/$1/config with spaces"
     CONFIG_FILE="${CONFIG_DIR}/opencode.json"
@@ -137,7 +156,22 @@ printf 'PASS: invalid flags leave no configuration\n'
 
 # Exercise the shell entry point with real jq and mocked network commands.
 mkdir -p "${TEST_ROOT}/bin"
-printf '#!/bin/bash\necho 0.8.0\n' > "${TEST_ROOT}/bin/npm"
+install_npm_mock() {
+    printf '%s\n' "$1" > "${TEST_ROOT}/npm-version"
+    cat > "${TEST_ROOT}/bin/npm" <<'EOF'
+#!/bin/bash
+if [[ "$1" == install && "$2" == --prefix ]]; then
+    mkdir -p "$3/node_modules/.bin"
+    printf '#!/bin/bash\nexit 0\n' > "$3/node_modules/.bin/playwright-cli"
+    chmod +x "$3/node_modules/.bin/playwright-cli"
+else
+    cat "$(dirname "$0")/../npm-version"
+fi
+EOF
+    chmod +x "${TEST_ROOT}/bin/npm"
+}
+printf '#!/bin/bash\nexit 0\n' > "${TEST_ROOT}/bin/uvx"
+install_npm_mock 0.8.0
 printf '#!/bin/bash\nexit 0\n' > "${TEST_ROOT}/bin/curl"
 printf '#!/bin/bash\nexit 0\n' > "${TEST_ROOT}/bin/npx"
 chmod +x "${TEST_ROOT}/bin/"*
@@ -189,18 +223,88 @@ backups=("${CONFIG_FILE}".backup.*)
 [[ ${#backups[@]} -eq 1 ]]
 main_run --no-extension --no-litellm-mcp --no-pdf-mcp
 check '.mcp["litellm-tools"].enabled == false and .mcp["pdf-reader"].enabled == false'
+check '(.mcp["paper-search"].enabled // false) == false'
+[[ -f "${isolated_home}/.config/opencode/skills/paper-search/SKILL.md" ]]
+main_run --paper-search-mcp
 check '.mcp["paper-search"] == {type: "local", command: ["uvx", "--with", "mcp<2", "paper-search-mcp==0.1.4"], enabled: true}'
+[[ ! -f "${isolated_home}/.config/opencode/skills/paper-search/SKILL.md" ]]
 main_run --no-paper-search-mcp
-check '.mcp["paper-search"].enabled == false'
+check '(.mcp["paper-search"].enabled // false) == false'
 jq '.mcp["paper-search"].command = ["/custom/uvx", "paper-search-mcp"]' "$CONFIG_FILE" > "${TEST_ROOT}/paper-custom"
 cp "${TEST_ROOT}/paper-custom" "$CONFIG_FILE"
 main_run --paper-search-mcp
 check '.mcp["paper-search"].enabled == true and .mcp["paper-search"].command == ["/custom/uvx", "paper-search-mcp"]'
 check_output
 printf 'PASS: main setup preserves configuration, backs up changes, and disables MCPs\n'
+main_run --playwright-mcp --paper-search-mcp
+check '.mcp.playwright.enabled == true and .mcp["paper-search"].enabled == true'
+cp "$CONFIG_FILE" "${TEST_ROOT}/before-cli-migration"
+main_run --playwright --paper-search
+jq -e --slurpfile previous "${TEST_ROOT}/before-cli-migration" '
+    .mcp.playwright == ($previous[0].mcp.playwright | .enabled = false)
+    and .mcp["paper-search"] == ($previous[0].mcp["paper-search"] | .enabled = false)
+' "$CONFIG_FILE" >/dev/null
+for skill in playwright-cli paper-search; do
+    [[ -f "${isolated_home}/.config/opencode/skills/${skill}/SKILL.md" ]]
+done
+cli_config="${isolated_home}/.config/opencode/tools/playwright/cli.config.json"
+jq -e '.browser.browserName == "chromium" and .browser.launchOptions.headless == true and .browser.launchOptions.chromiumSandbox == false' "$cli_config" >/dev/null
+printf '{"browser":{"launchOptions":{"headless":false}}}\n' > "$cli_config"
+main_run --playwright --paper-search
+jq -e '.browser.launchOptions.headless == false' "$cli_config" >/dev/null
+main_run --no-playwright --no-paper-search
+for skill in playwright-cli paper-search; do
+    [[ ! -f "${isolated_home}/.config/opencode/skills/${skill}/SKILL.md" ]]
+done
+check '.mcp.playwright.enabled == false and .mcp["paper-search"].enabled == false'
+main_run --playwright-mcp --paper-search-mcp
+check '.mcp.playwright.enabled == true and .mcp["paper-search"].enabled == true'
+printf 'PASS: CLI migration, custom MCP preservation, launch config preservation, disable and MCP fallback\n'
+# A failed CLI install must not disable the still-working MCP configuration.
+cp "$CONFIG_FILE" "${TEST_ROOT}/before-cli-failure"
+printf '#!/bin/bash\nexit 1\n' > "${TEST_ROOT}/bin/uvx"
+if main_run --paper-search --no-playwright; then exit 1; fi
+cmp -s "$CONFIG_FILE" "${TEST_ROOT}/before-cli-failure"
+printf '#!/bin/bash\nexit 0\n' > "${TEST_ROOT}/bin/uvx"
+for pair in 'playwright playwright-mcp' 'paper-search paper-search-mcp'; do
+    read -r cli_flag mcp_flag <<< "$pair"
+    if main_run "--$cli_flag" "--$mcp_flag"; then exit 1; fi
+    if main_run --all "--$mcp_flag"; then exit 1; fi
+done
+printf 'PASS: failed CLI installation preserves MCP config; conflicting modes rejected\n'
+
+# The installed launcher preserves argument boundaries and respects project and
+# explicit configuration overrides, including config paths containing spaces.
+main_run --playwright --no-paper-search
+launcher="${isolated_home}/.config/opencode/skills/playwright-cli/scripts/run.sh"
+cli_binary="${isolated_home}/.config/opencode/tools/playwright/node_modules/.bin/playwright-cli"
+cat > "$cli_binary" <<'EOF'
+#!/bin/bash
+printf '%s\n' "$@"
+EOF
+mkdir -p "${TEST_ROOT}/browser project/.playwright"
+(
+    cd "${TEST_ROOT}/browser project"
+    bash "$launcher" -s=own-session open 'https://example.invalid/a b' > "${TEST_ROOT}/launch-args"
+    expected_config="${isolated_home}/.config/opencode/tools/playwright/cli.config.json"
+    printf '%s\n' --config "$expected_config" -s=own-session open 'https://example.invalid/a b' > "${TEST_ROOT}/expected-args"
+    cmp -s "${TEST_ROOT}/launch-args" "${TEST_ROOT}/expected-args"
+    bash "$launcher" -s=own-session run-code 'async page => page.title()' > "${TEST_ROOT}/launch-args"
+    printf '%s\n' -s=own-session run-code 'async page => page.title()' > "${TEST_ROOT}/expected-args"
+    cmp -s "${TEST_ROOT}/launch-args" "${TEST_ROOT}/expected-args"
+    bash "$launcher" --config 'custom config.json' open > "${TEST_ROOT}/launch-args"
+    printf '%s\n' --config 'custom config.json' open > "${TEST_ROOT}/expected-args"
+    cmp -s "${TEST_ROOT}/launch-args" "${TEST_ROOT}/expected-args"
+    printf '{}' > .playwright/cli.config.json
+    bash "$launcher" open > "${TEST_ROOT}/launch-args"
+    [[ "$(cat "${TEST_ROOT}/launch-args")" == open ]]
+)
+printf 'PASS: launcher default config, explicit override, project override and quoting\n'
+
+
 
 # Any attempted installer or registry access must fail the preview test.
-for command in npm npx curl; do
+for command in npm npx curl uvx; do
     printf '#!/bin/bash\ntouch "%s"\nexit 99\n' "${TEST_ROOT}/network-called" > "${TEST_ROOT}/bin/${command}"
     chmod +x "${TEST_ROOT}/bin/${command}"
 done
@@ -220,7 +324,7 @@ main_run --dry-run --all
 check_output
 printf 'PASS: install/uninstall previews preserve files and never call the network\n'
 
-for feature in lsp context7 pdf-mcp playwright-mcp litellm-mcp extension roundtable openagent paper-search-mcp; do
+for feature in playwright paper-search lsp context7 pdf-mcp playwright-mcp litellm-mcp extension roundtable openagent paper-search-mcp; do
     if main_run "--$feature" "--no-$feature"; then exit 1; fi
     if main_run --all "--no-$feature"; then exit 1; fi
     if main_run "--no-$feature" --all; then exit 1; fi
@@ -263,16 +367,32 @@ if main_run --install; then exit 1; fi
 printf 'PASS: main setup rejects malformed JSON and JSONC before installation\n'
 
 # Restore harmless command mocks for default setup and real PTY menu tests.
-printf '#!/bin/bash\necho 0.8.0\n' > "${TEST_ROOT}/bin/npm"
+printf '#!/bin/bash\nexit 0\n' > "${TEST_ROOT}/bin/uvx"
+install_npm_mock 0.8.0
 printf '#!/bin/bash\nexit 0\n' > "${TEST_ROOT}/bin/npx"
 printf '#!/bin/bash\nexit 0\n' > "${TEST_ROOT}/bin/curl"
 isolated_home="${TEST_ROOT}/all-defaults"
 main_run
 CONFIG_FILE="${isolated_home}/.config/opencode/opencode.json"
-check '.lsp.just == {command: ["just-lsp"], extensions: [".just", ".justfile"]} and ([.mcp.context7, .mcp.playwright, .mcp["pdf-reader"], .mcp["litellm-tools"]] | all(.enabled == true))'
+check '.lsp.just == {command: ["just-lsp"], extensions: [".just", ".justfile"]} and ([.mcp.context7, .mcp["pdf-reader"], .mcp["litellm-tools"]] | all(.enabled == true))'
 [[ -f "${isolated_home}/.config/opencode/AGENTS.md" ]]
 check '(.plugin | index("opencode-roundtable@0.8.0")) != null'
-printf 'PASS: unattended setup enables every add-on including Roundtable\n'
+check '(.mcp.playwright.enabled // false) == false and (.mcp["paper-search"].enabled // false) == false'
+[[ -f "${isolated_home}/.config/opencode/skills/playwright-cli/SKILL.md" ]]
+[[ -f "${isolated_home}/.config/opencode/skills/paper-search/SKILL.md" ]]
+printf 'PASS: unattended setup enables CLI skills and every other add-on\n'
+
+check '.mcp["pdf-reader"].command == ["npx", "-y", "@sylphx/pdf-reader-mcp@4.1.3"]'
+jq '.mcp["pdf-reader"].command[-1] = "@sylphx/pdf-reader-mcp@latest"
+    | .mcp["pdf-reader"].timeout = 45000' "$CONFIG_FILE" > "${TEST_ROOT}/pdf-legacy"
+cp "${TEST_ROOT}/pdf-legacy" "$CONFIG_FILE"
+main_run --pdf-mcp
+check '.mcp["pdf-reader"].command == ["npx", "-y", "@sylphx/pdf-reader-mcp@4.1.3"] and .mcp["pdf-reader"].timeout == 45000'
+jq '.mcp["pdf-reader"].command = ["/custom/pdf-reader"]' "$CONFIG_FILE" > "${TEST_ROOT}/pdf-custom"
+cp "${TEST_ROOT}/pdf-custom" "$CONFIG_FILE"
+main_run --pdf-mcp
+check '.mcp["pdf-reader"].command == ["/custom/pdf-reader"]'
+printf 'PASS: PDF MCP version pinned, legacy default migrated, and custom command preserved\n'
 
 command -v script >/dev/null
 printf -v menu_command '%q ' env HOME="$isolated_home" PATH="${TEST_ROOT}/bin:${PATH}" \
@@ -281,29 +401,65 @@ printf -v menu_command '%q ' env HOME="$isolated_home" PATH="${TEST_ROOT}/bin:${
 # Toggle all nine entries off in a real pseudo-terminal.
 { sleep 1; printf ' \033[B \033[B \033[B \033[B \033[B \033[B \033[B \033[B \n'; } |
     script -q -e -c "$menu_command" /dev/null > "${TEST_ROOT}/output" 2>&1
-check '.lsp == false and ([.mcp.context7, .mcp.playwright, .mcp["pdf-reader"], .mcp["litellm-tools"]] | all(.enabled == false))'
-check '.mcp["paper-search"].enabled == false'
+check '.lsp == false and ([.mcp.context7, .mcp["pdf-reader"], .mcp["litellm-tools"]] | all(.enabled == false))'
+check '(.mcp["paper-search"].enabled // false) == false'
 check 'all(.plugin[]; startswith("opencode-roundtable") | not)'
-# Accept every preselected entry: previously disabled MCPs must become enabled.
+[[ ! -f "${isolated_home}/.config/opencode/skills/playwright-cli/SKILL.md" ]]
+[[ ! -f "${isolated_home}/.config/opencode/skills/paper-search/SKILL.md" ]]
+# Accept every preselected entry: CLI skills and remaining MCPs become enabled.
 { sleep 1; printf '\n'; } |
     script -q -e -c "$menu_command" /dev/null > "${TEST_ROOT}/output" 2>&1
-check '.lsp.just == {command: ["just-lsp"], extensions: [".just", ".justfile"]} and ([.mcp.context7, .mcp.playwright, .mcp["pdf-reader"], .mcp["litellm-tools"]] | all(.enabled == true))'
+check '.lsp.just == {command: ["just-lsp"], extensions: [".just", ".justfile"]} and ([.mcp.context7, .mcp["pdf-reader"], .mcp["litellm-tools"]] | all(.enabled == true))'
 check '(.plugin | index("opencode-roundtable@0.8.0")) != null'
-check '.mcp["paper-search"].enabled == true'
+check '(.mcp["paper-search"].enabled // false) == false'
 check_output
+[[ -f "${isolated_home}/.config/opencode/skills/playwright-cli/SKILL.md" ]]
+[[ -f "${isolated_home}/.config/opencode/skills/paper-search/SKILL.md" ]]
+check '(.mcp.playwright.enabled // false) == false'
 printf 'PASS: real menu deselects and re-enables existing integrations\n'
 
 # Updating pins must replace old entries, preserve unrelated plugins, and keep
 # Roundtable enabled on subsequent unattended runs without an explicit flag.
 main_run --roundtable
 check '([.plugin[] | select(startswith("opencode-roundtable@"))] == ["opencode-roundtable@0.8.0"])'
-printf '#!/bin/bash\necho 0.9.0\n' > "${TEST_ROOT}/bin/npm"
+install_npm_mock 0.9.0
 main_run
 check '([.plugin[] | select(startswith("opencode-roundtable@"))] == ["opencode-roundtable@0.9.0"])'
 check '([.plugin[] | select(startswith("opencode-plugin-litellm@"))] == ["opencode-plugin-litellm@0.9.0"])'
 main_run --no-roundtable
 check 'all(.plugin[]; startswith("opencode-roundtable") | not)'
 printf 'PASS: Roundtable enable, update, retention, and removal\n'
+
+cp "$CONFIG_FILE" "${TEST_ROOT}/before-roundtable-modes"
+jq '.disabled_providers = ["custom-provider"] | .plugin += [["custom-plugin@1.0.0", {setting: true}]]' \
+    "$CONFIG_FILE" > "${TEST_ROOT}/mode-fixture"
+cp "${TEST_ROOT}/mode-fixture" "$CONFIG_FILE"
+for mode in light standard heavy free; do
+    main_run --roundtable-mode "$mode"
+    check "([.plugin[] | select(type == \"array\") | select(.[0] | startswith(\"opencode-roundtable@\"))] == [[\"opencode-roundtable@0.9.0\", {mode: \"$mode\"}]])"
+    check '.disabled_providers == ["custom-provider", "opencode"]'
+    check 'any(.plugin[]; . == ["custom-plugin@1.0.0", {setting: true}])'
+done
+jq '(.plugin[] | select(type == "array") | select(.[0] | startswith("opencode-roundtable@")) | .[1]).maxRounds = 9' \
+    "$CONFIG_FILE" > "${TEST_ROOT}/custom-roundtable"
+cp "${TEST_ROOT}/custom-roundtable" "$CONFIG_FILE"
+main_run
+check 'any(.plugin[]; . == ["opencode-roundtable@0.9.0", {mode: "free", maxRounds: 9}])'
+main_run --roundtable-mode light
+check 'any(.plugin[]; . == ["opencode-roundtable@0.9.0", {mode: "light", maxRounds: 9}])'
+cp "$CONFIG_FILE" "${TEST_ROOT}/before-invalid-mode"
+for args in '--roundtable-mode invalid' '--roundtable-mode' '--no-roundtable --roundtable-mode free' '--roundtable-mode free --no-roundtable' '--roundtable-mode light --roundtable-mode heavy'; do
+    read -r -a invalid_flags <<< "$args"
+    if main_run "${invalid_flags[@]}"; then exit 1; fi
+    cmp -s "$CONFIG_FILE" "${TEST_ROOT}/before-invalid-mode"
+done
+main_run --dry-run --all --roundtable-mode heavy
+cmp -s "$CONFIG_FILE" "${TEST_ROOT}/before-invalid-mode"
+grep -q 'Roundtable mode: heavy' "${TEST_ROOT}/output"
+main_run --no-roundtable
+check 'all(.plugin[]; (if type == "array" then .[0] else . end) | startswith("opencode-roundtable") | not)'
+cp "${TEST_ROOT}/before-roundtable-modes" "$CONFIG_FILE"
+printf 'PASS: Zen disabled; Roundtable modes, tuple preservation, reruns, dry-run, and invalid flags\n'
 
 main_run --openagent --omo-model litellm/test-model
 check '([.plugin[] | select(startswith("oh-my-openagent@"))] == ["oh-my-openagent@4.19.4"])'
@@ -317,11 +473,35 @@ jq -e '."[opencode]" | (.goal.enabled == false) and (.goal.auto_start == false)
     and .categories.quick.model == "litellm/test-model"' "$omo_config" >/dev/null
 jq '."[opencode]".goal.enabled = false | ."[opencode]".background_task.defaultConcurrency = 2
     | ."[opencode]".codegraph = {enabled: false, auto_provision: false, telemetry: false}
-    | ."[opencode]".agents.sisyphus.model = "litellm/custom-main"' \
+    | ."[opencode]".agents.sisyphus.model = "litellm/custom-main"
+    | ."[opencode]".agents.sisyphus.temperature = 0.2
+    | ."[opencode]".agents.custom = {model: "litellm/custom-role"}
+    | ."[opencode]".categories.custom = {model: "litellm/custom-category"}' \
     "$omo_config" > "${TEST_ROOT}/omo-custom"
 cp "${TEST_ROOT}/omo-custom" "$omo_config"
 cp "$omo_config" "${TEST_ROOT}/omo-before"
-main_run --openagent --omo-model litellm/other-model
+main_run --openagent
+cmp -s "$omo_config" "${TEST_ROOT}/omo-before"
+switch_model=litellm/deepseek-ai/DeepSeek-V4-Flash-0731
+main_run --dry-run --all --omo-model "$switch_model"
+cmp -s "$omo_config" "${TEST_ROOT}/omo-before"
+mkdir -p "${isolated_home}/.opencode/bin"
+printf '#!/bin/bash\necho test\n' > "${isolated_home}/.opencode/bin/opencode"
+chmod +x "${isolated_home}/.opencode/bin/opencode"
+main_run --install --extension --all --omo-model "$switch_model"
+jq -e --arg model "$switch_model" --slurpfile before "${TEST_ROOT}/omo-before" '
+    ."[opencode]" as $config
+    | ($config.agents | del(.custom) | length == 11)
+    and ($config.categories | del(.custom) | length == 8)
+    and ($config.agents | del(.custom) | all(.[]; .model == $model))
+    and ($config.categories | del(.custom) | all(.[]; .model == $model))
+    and (del(."[opencode]".agents[].model, ."[opencode]".categories[].model)
+        == ($before[0] | del(."[opencode]".agents[].model, ."[opencode]".categories[].model)))
+    and $config.agents.custom.model == "litellm/custom-role"
+    and $config.categories.custom.model == "litellm/custom-category"
+' "$omo_config" >/dev/null
+cp "$omo_config" "${TEST_ROOT}/omo-before"
+main_run --openagent --omo-model "$switch_model"
 cmp -s "$omo_config" "${TEST_ROOT}/omo-before"
 main_run --no-openagent
 check 'all(.plugin[]; startswith("oh-my-openagent") | not)'
@@ -346,8 +526,8 @@ cp "${TEST_ROOT}/omo-telemetry" "$omo_config"
 main_run --dry-run --openagent
 cmp -s "$omo_config" "${TEST_ROOT}/omo-telemetry"
 main_run --openagent
-jq -e '."[opencode]" | .telemetry == false and .codegraph.telemetry == false
-    and .codegraph.enabled == false and .agents.sisyphus.model == "litellm/custom-main"' \
+jq -e --arg model "$switch_model" '."[opencode]" | .telemetry == false and .codegraph.telemetry == false
+    and .codegraph.enabled == false and .agents.sisyphus.model == $model' \
     "$omo_config" >/dev/null
 cp "$omo_config" "${TEST_ROOT}/omo-telemetry-disabled"
 main_run --openagent
@@ -358,7 +538,7 @@ printf 'PASS: telemetry opt-ins disabled, preview unchanged, and rerun idempoten
 jq '."[opencode]".goal.enabled = true' "$omo_config" > "${TEST_ROOT}/omo-old-goal"
 cp "${TEST_ROOT}/omo-old-goal" "$omo_config"
 main_run --openagent
-jq -e '."[opencode]".goal.enabled == false and ."[opencode]".agents.sisyphus.model == "litellm/custom-main"' "$omo_config" >/dev/null
+jq -e --arg model "$switch_model" '."[opencode]".goal.enabled == false and ."[opencode]".agents.sisyphus.model == $model' "$omo_config" >/dev/null
 [[ -n "$(find "${isolated_home}/.omo" -name 'omo.json.backup.*' -print -quit)" ]]
 # A fresh generic setup must not create model assignments without explicit input.
 env HOME="${TEST_ROOT}/generic-omo" OMO_MODEL='' bash "${SCRIPT_DIR}/setup-openagent.sh" > "${TEST_ROOT}/output" 2>&1
@@ -447,7 +627,7 @@ printf -v all_command '%q ' env HOME="$isolated_home" PATH="${TEST_ROOT}/bin:${P
 timeout 20s script -q -e -c "$all_command" /dev/null </dev/null > "${TEST_ROOT}/output" 2>&1
 if grep -q 'Optional Add-ons' "${TEST_ROOT}/output"; then exit 1; fi
 [[ "$(wc -l < "${isolated_home}/installer-calls")" -eq 3 ]]
-check '.lsp.just.command == ["just-lsp"] and ([.mcp.context7, .mcp.playwright, .mcp["pdf-reader"], .mcp["litellm-tools"]] | all(.enabled == true))'
+check '.lsp.just.command == ["just-lsp"] and ([.mcp.context7, .mcp["pdf-reader"], .mcp["litellm-tools"]] | all(.enabled == true))'
 check '(.plugin | index("opencode-roundtable@0.9.0")) != null'
 [[ -f "${isolated_home}/.config/opencode/AGENTS.md" ]]
 printf 'PASS: --all installs and enables every add-on without a terminal prompt\n'
@@ -456,8 +636,9 @@ main_run --uninstall
 cmp -s <(sed '/^$/d' "${isolated_home}/.zshrc") "${TEST_ROOT}/personal-zshrc"
 printf 'PASS: uninstall preserves custom PATH entries and aliases\n'
 
-# Mock shell-account changes; never run usermod against the test host.
+# Mock shell lookup and account changes; this test only verifies configuration sync.
 mkdir -p "${isolated_home}/.oh-my-zsh/custom/plugins/"{zsh-autosuggestions,zsh-syntax-highlighting}
+printf '#!/bin/sh\nexit 0\n' > "${TEST_ROOT}/bin/zsh"
 printf '#!/bin/sh\nexit 0\n' > "${TEST_ROOT}/bin/usermod"
 # Evaluate the shell path when the mock runs in the isolated environment.
 # shellcheck disable=SC2016

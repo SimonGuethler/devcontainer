@@ -83,8 +83,8 @@ docker compose -f .devcontainer/compose.yml down
 | Context7 | Documentation queries sent to an external service | `--no-context7` |
 | LiteLLM MCP gateway | Tools exposed by your proxy at `/mcp`; requires gateway support and access | `--no-litellm-mcp` |
 | PDF reader | PDF/document reading through MCP | `--no-pdf-mcp` |
-| Paper Search | Academic paper search and downloads via `uvx`; pinned to `paper-search-mcp==0.1.4` with `mcp<2` for compatibility; requires internet, no API key required for basic use | `--no-paper-search-mcp` |
-| Playwright | Headless Chromium browser automation | `--no-playwright-mcp` |
+| Paper Search | CLI + on-demand skill for academic search, PDF downloads and text; pinned to `paper-search-mcp==0.1.4` with `mcp<2`; basic use needs no API key | `--no-paper-search` |
+| Playwright | CLI + on-demand skill for headless Chromium browser automation | `--no-playwright` |
 | Coding guidelines | Installs the included `AGENTS.md` | `--no-extension` |
 | Roundtable | Multi-agent debates across several rounds; increases token usage | `--no-roundtable` |
 | Oh My OpenAgent | Orchestration and specialized background agents; selected by default | `--no-openagent` |
@@ -97,6 +97,29 @@ docker compose -f .devcontainer/compose.yml down
 | All flags | Run `bash /workspace/.devcontainer/setup-opencode.sh --help` |
 
 - Explicit enable/disable flags skip the corresponding menu entries.
+- Playwright and Paper Search default to CLI + skills, including under `--all`.
+  Use `--playwright` / `--paper-search` to select them explicitly. Setup disables
+  their old MCP entries while preserving commands and settings for later reuse.
+  The skills appear in a new OpenCode session; no individual browser or paper
+  MCP tool schemas are loaded in CLI mode.
+- `--playwright-mcp` / `--paper-search-mcp` explicitly select the alternative MCP
+  interface and disable the corresponding CLI skill. Do not combine these with
+  `--all` or the corresponding CLI enable flag. The legacy `--no-*-mcp` flags
+  remain aliases for disabling the whole integration. Installed CLI packages
+  and customized launch configuration remain available for later re-enabling.
+- Playwright installs privately under `~/.config/opencode/tools/playwright`.
+  The CLI version is resolved on each setup run, and Chromium is installed using
+  its matching Playwright dependency. The launcher defaults to Chromium,
+  headless, with sandbox disabled for the root container. Project
+  `.playwright/cli.config.json` and explicit `--config` take precedence; setup
+  preserves edits to the private default configuration on reruns.
+- Paper Search uses the cached `uvx --with 'mcp<2' --from paper-search-mcp==0.1.4
+  paper-search` command. Optional credentials belong in shell environment
+  variables or `~/.config/paper-search-mcp/.env`; credentials stored only in an
+  OpenCode MCP `environment` entry must be configured there separately for CLI
+  use. The CLI supports search, download, read and source listing, but version
+  0.1.4 does not expose the MCP-only `download_with_fallback` operation. Select
+  MCP explicitly when that operation is required.
 - Use `--all` to install/update OpenCode and enable every add-on without prompts. It cannot be combined with `--no-*` or `--uninstall`; credentials are still required. For example, with `LITELLM_API_KEY` and `LITELLM_BASE_URL` set:
 
   ```sh
@@ -106,10 +129,32 @@ docker compose -f .devcontainer/compose.yml down
 - Repeat the installation command with `--install` to update OpenCode and refresh plugin pins without uninstalling. The official installer skips the binary download if the current release is already installed. Restart OpenCode afterward.
 - Setup checks the proxy connection and API key before installation or configuration changes; a failed check aborts setup.
 - Setup uses `opencode-plugin-litellm` for model discovery and metadata from `/v1/models` and `/v1/model/info`.
+- Setup disables OpenCode Zen (`disabled_providers: ["opencode"]`), removing its
+  models from the picker after restarting OpenCode. Existing disabled providers
+  are retained; other providers are not disabled.
 - Standard API-key proxies are the intended setup. Custom authentication, certificates, or gateway routes may need manual configuration.
 - `localhost` refers to the container; use an address reachable from inside it.
 
 ## Advanced configuration
+
+### Roundtable modes
+
+All add-ons remain selected by default. Roundtable uses `standard` on first
+setup; choose a different preset by adding `--roundtable-mode light`,
+`--roundtable-mode standard`, `--roundtable-mode heavy`, or
+`--roundtable-mode free` to your usual setup command. This flag enables Roundtable
+and also works with `--all`, without adding another interactive prompt.
+
+The presets allow up to 3, 5, or 7 rounds respectively. `free` hides the round
+limit from participants and uses the plugin's internal safety cap (currently
+12 rounds); it does not mean free API usage. Presets also tune thresholds,
+timeouts, and retries. Debates can finish earlier.
+
+An explicitly selected mode is stored as plugin options in the container's
+`~/.config/opencode/opencode.json`. Reruns preserve these options unless another
+mode is specified; `--no-roundtable` removes the registration and its options.
+Plugin options require an OpenCode version supporting plugin tuples (use the
+current version installed by `--install`). Restart OpenCode after setup.
 
 ### Oh My OpenAgent
 
@@ -119,7 +164,7 @@ CodeGraph defaults to enabled with automatic provisioning (`[opencode].codegraph
 
 Restart OpenCode, select Sisyphus, and describe your objective and acceptance criteria in normal chat. Setup disables the faulty Goal hook: OpenAgent 4.19.4 can interpret ordinary messages or expanded commands as objectives and reject them above 2000 characters. Reruns also change an existing `[opencode].goal.enabled` to `false`, backing up the previous JSON configuration. This is a compatibility workaround, not an upstream code fix; dedicated `/goal` continuation is unavailable until a corrected release is verified. Agent orchestration remains available. New configurations default to at most three background tasks. Team Mode defaults to enabled; existing explicit settings are preserved. Worktrees and tmux visualization are optional and are not enabled by this setup. Build and Plan remain available.
 
-The workspace does not impose any model. Optional `--omo-model litellm/<model-id>` (or `OMO_MODEL`) fills missing agent/category model settings only when explicitly supplied. Existing individual assignments remain intact, including assignments from earlier setup runs. Without it, OpenAgent model selection uses upstream defaults and may require providers you have not configured; selecting a model in the UI does not necessarily configure every subagent. Edit individual assignments in `~/.omo/omo.json` under `[opencode].agents` and `[opencode].categories`.
+The workspace does not impose any model. Optional `--omo-model litellm/<model-id>` (or `OMO_MODEL`) sets all built-in agent/category model assignments, replacing earlier assignments so rerunning setup can switch models. Other role settings and custom roles remain intact. Omit both the flag and environment variable to preserve existing model assignments. Without configured assignments, OpenAgent model selection uses upstream defaults and may require providers you have not configured; selecting a model in the UI does not necessarily configure every subagent. Restart OpenCode after switching models. Edit individual assignments in `~/.omo/omo.json` under `[opencode].agents` and `[opencode].categories`.
 
 The helper backs up changed `~/.omo/omo.json` files and preserves custom settings except for the Goal compatibility override and enforced telemetry opt-out. If `~/.omo/omo.jsonc` already exists, setup stops before installation/configuration changes: set `goal.enabled` to `false` manually inside its `[opencode]` object and manage that JSONC configuration manually. The duplicate built-in Context7 MCP is disabled in generated JSON; our existing Context7 option continues to control it. Local workspace-memory remains available.
 
@@ -173,6 +218,15 @@ For `just` diagnostics:
 | Shell | Zsh, Oh My Zsh, autosuggestions, syntax highlighting, history search, fzf |
 | Utilities | Git, Git LFS, ripgrep, fd, jq, SQLite CLI, ShellCheck, tmux, croc |
 | VS Code | Python, notebooks, Vue, Rust, and configuration-file extensions; formatting defaults for Python, JavaScript, TypeScript, and Vue |
+
+The `just`, `just-lsp`, and croc release archives are version-pinned and checked
+against SHA-256 digests before extraction. Update each Dockerfile version and its
+digest together. Node intentionally tracks the v24 release line, and Rust tracks
+stable; fresh builds pick up toolchain fixes when those layers are rebuilt.
+Projects can select a specific Rust toolchain with `rust-toolchain.toml`.
+PDF MCP is pinned to `@sylphx/pdf-reader-mcp@4.1.3` so restarting it cannot silently
+select a newer release. Rerunning setup with PDF enabled migrates the old workspace
+`@latest` command while preserving custom commands.
 
 ## Repository files
 
