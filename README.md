@@ -196,8 +196,29 @@ honor them; they do not block model requests, MCP queries, or package downloads.
 | Agent colors | Setup supplies blue for Build and orange for Plan when no explicit color exists; custom colors are preserved. Rerun setup and restart OpenCode to apply. |
 | Disable an integration | Use its `--no-*` flag or deselect it in the menu |
 | JSONC config | Existing `opencode.jsonc` files must be edited manually |
-| Local agents and skills | Includes Apollo and workspace-review plus verification, browser-check, and project-memory skills |
+| Local agents and skills | Includes Apollo and workspace-review plus verification, browser-check, project-memory, and hyper-review skills |
 | Zsh setup | Backs up a differing `.zshrc` before replacement; manages OpenCode PATH entries in marked blocks |
+
+Use `/hyper-review <topic or review request>` for in-depth research, code/system
+reviews, or checking an implementation against a plan. The command loads the
+`hyper-review` skill using the current agent. For example:
+`/hyper-review Check this implementation against _project_plans/example.md and prioritize gaps and improvements`.
+Without arguments, it uses the established conversation scope or asks for a target.
+The workflow reports evidence, trade-offs, and verification limits; a review alone
+does not request fixes. Rerun the harness installer and restart OpenCode after
+changing the command file.
+
+Use `/hyper-analyze <topic or review request>` for a full deep dive with at least
+two independent critics across three required rounds: independent discovery,
+cross-critique and deeper investigation, and a synthesis stress test. Targeted
+rounds continue while material leads or investigable coverage gaps remain, with
+explicit stopping criteria and reporting of incomplete rounds. It extends
+`hyper-review`, uses the current agent, and selects
+relevant perspectives such as architecture, implementation, requirements, or
+research quality. Unlike `/hyper-review`, delegation is required when available
+and permitted. If the active agent cannot delegate, it reports reduced coverage
+and continues useful direct analysis without claiming a completed critic panel.
+Both workflows recommend improvements without automatically implementing them.
 
 Change only LSP and Context7 settings without changing provider credentials:
 

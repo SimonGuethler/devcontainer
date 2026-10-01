@@ -58,7 +58,11 @@ run
 grep -q 'mode: subagent' "${CONFIG_DIR}/agents/workspace-review.md"
 cmp -s "${SCRIPT_DIR}/opencode/agents/apollo.md" "${CONFIG_DIR}/agents/apollo.md"
 skills=("${CONFIG_DIR}"/skills/*)
-[[ ${#skills[@]} -eq 3 ]]
+[[ ${#skills[@]} -eq 5 ]]
+cmp -s "${SCRIPT_DIR}/opencode/skills/hyper-review/SKILL.md" "${CONFIG_DIR}/skills/hyper-review/SKILL.md"
+cmp -s "${SCRIPT_DIR}/opencode/commands/hyper-review.md" "${CONFIG_DIR}/commands/hyper-review.md"
+cmp -s "${SCRIPT_DIR}/opencode/skills/hyper-analyze/SKILL.md" "${CONFIG_DIR}/skills/hyper-analyze/SKILL.md"
+cmp -s "${SCRIPT_DIR}/opencode/commands/hyper-analyze.md" "${CONFIG_DIR}/commands/hyper-analyze.md"
 run
 agents=("${CONFIG_DIR}"/agents/*)
 [[ ${#agents[@]} -eq 2 ]]
