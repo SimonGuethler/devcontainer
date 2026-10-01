@@ -33,7 +33,7 @@ while [[ $# -gt 0 ]]; do
         --help)
             cat <<'EOF'
 Usage: bash setup-opencode-harness.sh [options]
-Installs workspace-review and three on-demand skills; preserves other files.
+Installs Apollo, workspace-review, and three on-demand skills; preserves other files.
   --config-dir <path>       OpenCode config directory (default ~/.config/opencode)
   --dry-run                 Preview without changing configuration or printing credentials
   --lsp / --no-lsp           Enable/disable native LSP; unchanged when omitted
@@ -47,6 +47,7 @@ done
 
 CONFIG_DIR="$(realpath -m -- "$CONFIG_DIR")"
 FILES=(
+    agents/apollo.md
     agents/workspace-review.md
     skills/workspace-verification/SKILL.md
     skills/workspace-browser-check/SKILL.md

@@ -56,11 +56,12 @@ fixture defaults
 run
 [[ ! -e "$CONFIG_FILE" ]]
 grep -q 'mode: subagent' "${CONFIG_DIR}/agents/workspace-review.md"
+cmp -s "${SCRIPT_DIR}/opencode/agents/apollo.md" "${CONFIG_DIR}/agents/apollo.md"
 skills=("${CONFIG_DIR}"/skills/*)
 [[ ${#skills[@]} -eq 3 ]]
 run
 agents=("${CONFIG_DIR}"/agents/*)
-[[ ${#agents[@]} -eq 1 ]]
+[[ ${#agents[@]} -eq 2 ]]
 printf 'PASS: default installation and rerun\n'
 
 fixture preservation
@@ -463,11 +464,17 @@ printf 'PASS: Zen disabled; Roundtable modes, tuple preservation, reruns, dry-ru
 
 main_run --openagent --omo-model litellm/test-model
 check '([.plugin[] | select(startswith("oh-my-openagent@"))] == ["oh-my-openagent@4.19.4"])'
+check '.default_agent == "apollo"'
+cmp -s "${SCRIPT_DIR}/opencode/agents/apollo.md" "${isolated_home}/.config/opencode/agents/apollo.md"
 omo_config="${isolated_home}/.omo/omo.json"
 jq -e '."[opencode]" | (.goal.enabled == false) and (.goal.auto_start == false)
     and (.team_mode.enabled == true) and .background_task.defaultConcurrency == 3
     and (.codegraph.enabled == true) and (.codegraph.auto_provision == true)
     and (.telemetry == false) and (.codegraph.telemetry == false)
+    and .agent_order == ["sisyphus", "prometheus", "atlas"]
+    and .sisyphus_agent.default_builder_enabled == true
+    and .sisyphus_agent.replace_plan == true
+    and .agents.hephaestus.mode == "subagent"
     and .agents.sisyphus.model == "litellm/test-model"
     and .agents.explore.model == "litellm/test-model"
     and .categories.quick.model == "litellm/test-model"' "$omo_config" >/dev/null
@@ -542,7 +549,7 @@ jq -e --arg model "$switch_model" '."[opencode]".goal.enabled == false and ."[op
 [[ -n "$(find "${isolated_home}/.omo" -name 'omo.json.backup.*' -print -quit)" ]]
 # A fresh generic setup must not create model assignments without explicit input.
 env HOME="${TEST_ROOT}/generic-omo" OMO_MODEL='' bash "${SCRIPT_DIR}/setup-openagent.sh" > "${TEST_ROOT}/output" 2>&1
-jq -e '."[opencode]" | (has("agents") | not) and (has("categories") | not) and (.goal.enabled == false)' \
+jq -e '."[opencode]" | .agents == {hephaestus: {mode: "subagent"}} and (has("categories") | not) and (.goal.enabled == false)' \
     "${TEST_ROOT}/generic-omo/.omo/omo.json" >/dev/null
 printf 'PASS: old goal default disabled and generic setup has no model assignments\n'
 

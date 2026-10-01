@@ -488,9 +488,9 @@ HARNESS_ARGS=()
 [[ "$LSP_FLAG" == "no" ]] && HARNESS_ARGS+=(--no-lsp)
 [[ "$CONTEXT7_FLAG" == "yes" ]] && HARNESS_ARGS+=(--context7)
 [[ "$CONTEXT7_FLAG" == "no" ]] && HARNESS_ARGS+=(--no-context7)
-if [[ ${#HARNESS_ARGS[@]} -gt 0 ]]; then
+if [[ ${#HARNESS_ARGS[@]} -gt 0 || "$OPENAGENT_FLAG" == yes ]]; then
     if [[ ! -f "$HARNESS_SOURCE" ]]; then
-        error "LSP/Context7 setup requires ${HARNESS_SOURCE}"
+        error "Agent/LSP/Context7 setup requires ${HARNESS_SOURCE}"
         exit 1
     fi
     bash "$HARNESS_SOURCE" --config-dir "$CONFIG_DIR" "${HARNESS_ARGS[@]}" --dry-run
@@ -682,7 +682,10 @@ write_configuration() {
                           else ["opencode-roundtable@" + $roundtable_version, $options] end]
           else . end
         | .plugin |= map(select((is_plugin("oh-my-openagent") or is_plugin("oh-my-opencode")) | not))
-        | if $openagent == "yes" then .plugin += ["oh-my-openagent@" + $openagent_version] else . end
+        | if $openagent == "yes" then
+            .plugin += ["oh-my-openagent@" + $openagent_version]
+            | .default_agent = "apollo"
+          else . end
         | .provider.litellm.npm //= "@ai-sdk/openai-compatible"
         | .provider.litellm.name //= "LiteLLM"
         | .provider.litellm.options.baseURL = $base
@@ -725,7 +728,7 @@ if [[ "$OPENAGENT_FLAG" == yes ]]; then
     OMO_MODEL="$OMO_MODEL" bash "$OPENAGENT_SETUP"
 fi
 
-if [[ ${#HARNESS_ARGS[@]} -gt 0 ]]; then
+if [[ ${#HARNESS_ARGS[@]} -gt 0 || "$OPENAGENT_FLAG" == yes ]]; then
     print_section "LSP and Documentation Setup"
     bash "$HARNESS_SOURCE" --config-dir "$CONFIG_DIR" "${HARNESS_ARGS[@]}"
 fi
