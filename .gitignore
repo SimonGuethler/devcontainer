@@ -17,6 +17,8 @@
 !.devcontainer/opencode/commands/
 !.devcontainer/opencode/commands/hyper-review.md
 !.devcontainer/opencode/commands/hyper-analyze.md
+!.devcontainer/opencode/commands/image-gen.md
+!.devcontainer/opencode/commands/image-gen.sh
 !.devcontainer/opencode/playwright-cli.config.json
 !.devcontainer/opencode/optional-skills/
 !.devcontainer/opencode/optional-skills/playwright-cli/

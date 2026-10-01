@@ -63,6 +63,10 @@ cmp -s "${SCRIPT_DIR}/opencode/skills/hyper-review/SKILL.md" "${CONFIG_DIR}/skil
 cmp -s "${SCRIPT_DIR}/opencode/commands/hyper-review.md" "${CONFIG_DIR}/commands/hyper-review.md"
 cmp -s "${SCRIPT_DIR}/opencode/skills/hyper-analyze/SKILL.md" "${CONFIG_DIR}/skills/hyper-analyze/SKILL.md"
 cmp -s "${SCRIPT_DIR}/opencode/commands/hyper-analyze.md" "${CONFIG_DIR}/commands/hyper-analyze.md"
+cmp -s "${SCRIPT_DIR}/opencode/commands/image-gen.md" "${CONFIG_DIR}/commands/image-gen.md"
+cmp -s "${SCRIPT_DIR}/opencode/commands/image-gen.sh" "${CONFIG_DIR}/commands/image-gen.sh"
+bash "${CONFIG_DIR}/commands/image-gen.sh" --help > "${TEST_ROOT}/image-help"
+grep -q 'PNG/base64 output only' "${TEST_ROOT}/image-help"
 run
 agents=("${CONFIG_DIR}"/agents/*)
 [[ ${#agents[@]} -eq 2 ]]
@@ -335,7 +339,7 @@ for feature in playwright paper-search lsp context7 pdf-mcp playwright-mcp litel
     if main_run "--no-$feature" --all; then exit 1; fi
 done
 if main_run --all --uninstall; then exit 1; fi
-for flag in --key --base-url --omo-model --unknown; do
+for flag in --key --base-url --omo-model --omo-variant --unknown; do
     if main_run "$flag"; then exit 1; fi
 done
 if main_run --install --uninstall; then exit 1; fi
@@ -493,7 +497,7 @@ cp "${TEST_ROOT}/omo-custom" "$omo_config"
 cp "$omo_config" "${TEST_ROOT}/omo-before"
 main_run --openagent
 cmp -s "$omo_config" "${TEST_ROOT}/omo-before"
-switch_model=litellm/deepseek-ai/DeepSeek-V4-Flash-0731
+switch_model=litellm/test-model-next
 main_run --dry-run --all --omo-model "$switch_model"
 cmp -s "$omo_config" "${TEST_ROOT}/omo-before"
 mkdir -p "${isolated_home}/.opencode/bin"
@@ -514,6 +518,41 @@ jq -e --arg model "$switch_model" --slurpfile before "${TEST_ROOT}/omo-before" '
 cp "$omo_config" "${TEST_ROOT}/omo-before"
 main_run --openagent --omo-model "$switch_model"
 cmp -s "$omo_config" "${TEST_ROOT}/omo-before"
+# Model switches preserve variant/reasoning settings, even with the old env var.
+jq '."[opencode]".agents.sisyphus.variant = "low"
+    | ."[opencode]".agents.sisyphus.reasoning = "low"
+    | ."[opencode]".agents.sisyphus.reasoningEffort = "medium"
+    | ."[opencode]".categories.quick.variant = "high"
+    | ."[opencode]".categories.quick.reasoning = "high"
+    | ."[opencode]".agents.custom.reasoning = "low"' \
+    "$omo_config" > "${TEST_ROOT}/omo-migrated-reasoning"
+cp "${TEST_ROOT}/omo-migrated-reasoning" "$omo_config"
+jq '.agent.apollo.variant = "low" | .agent.build.variant = "high"' \
+    "$CONFIG_FILE" > "${TEST_ROOT}/native-variants"
+cp "${TEST_ROOT}/native-variants" "$CONFIG_FILE"
+cp "$omo_config" "${TEST_ROOT}/omo-before"
+cp "$CONFIG_FILE" "${TEST_ROOT}/native-before"
+switch_model=litellm/test-model-final
+OMO_VARIANT=max main_run --dry-run --openagent --omo-model "$switch_model"
+cmp -s "$omo_config" "${TEST_ROOT}/omo-before"
+cmp -s "$CONFIG_FILE" "${TEST_ROOT}/native-before"
+OMO_VARIANT=max main_run --openagent --omo-model "$switch_model"
+check '[.agent.apollo, .agent["workspace-review"], .agent.build, .agent.plan]
+    | all(.[]; .model == "litellm/test-model-final")'
+check '.agent.apollo.variant == "low" and .agent.build.variant == "high"
+    and (.agent["workspace-review"] | has("variant") | not)
+    and (.agent.plan | has("variant") | not)'
+jq -e --arg model "$switch_model" --slurpfile before "${TEST_ROOT}/omo-before" '
+    ."[opencode]" as $config
+    | ($config.agents | del(.custom) | all(.[]; .model == $model))
+    and ($config.categories | del(.custom) | all(.[]; .model == $model))
+    and (del(."[opencode]".agents[].model, ."[opencode]".categories[].model)
+        == ($before[0] | del(."[opencode]".agents[].model, ."[opencode]".categories[].model)))
+' "$omo_config" >/dev/null
+cp "$omo_config" "${TEST_ROOT}/omo-before"
+main_run --openagent --omo-model "$switch_model"
+cmp -s "$omo_config" "${TEST_ROOT}/omo-before"
+if main_run --openagent --omo-variant max; then exit 1; fi
 main_run --no-openagent
 check 'all(.plugin[]; startswith("oh-my-openagent") | not)'
 cmp -s "$omo_config" "${TEST_ROOT}/omo-before"
@@ -648,7 +687,7 @@ cmp -s <(sed '/^$/d' "${isolated_home}/.zshrc") "${TEST_ROOT}/personal-zshrc"
 printf 'PASS: uninstall preserves custom PATH entries and aliases\n'
 
 # Mock shell lookup and account changes; this test only verifies configuration sync.
-mkdir -p "${isolated_home}/.oh-my-zsh/custom/plugins/"{zsh-autosuggestions,zsh-syntax-highlighting}
+mkdir -p "${isolated_home}/.oh-my-zsh/custom/plugins/"{deja,zsh-syntax-highlighting}
 printf '#!/bin/sh\nexit 0\n' > "${TEST_ROOT}/bin/zsh"
 printf '#!/bin/sh\nexit 0\n' > "${TEST_ROOT}/bin/usermod"
 # Evaluate the shell path when the mock runs in the isolated environment.

@@ -3,7 +3,7 @@
     "dockerComposeFile": "compose.yml",
     "service": "dev",
     "workspaceFolder": "/workspace",
-    "shutdownAction": "stopCompose",
+    "shutdownAction": "none",
 
     // Oh My Zsh and its plugins are already included in the image. Sync
     // .zshrc with the repository version after mounting the workspace.

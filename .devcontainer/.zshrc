@@ -12,11 +12,23 @@ plugins=(
   extract
   copypath
   sudo
-  zsh-autosuggestions
   colored-man-pages
   history-substring-search
   zsh-syntax-highlighting
+  deja
 )
+
+# history: explicit settings (append + shared + no dups; 1M entries)
+setopt append_history
+setopt share_history
+setopt hist_ignore_dups
+setopt hist_expire_dups_first
+setopt hist_find_no_dups
+setopt hist_reduce_blanks
+setopt inc_append_history
+setopt no_beep
+HISTSIZE=1000000
+SAVEHIST=1000000
 
 source $ZSH/oh-my-zsh.sh
 

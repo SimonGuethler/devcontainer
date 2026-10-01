@@ -18,7 +18,7 @@ else
 fi
 
 ZSH_CUSTOM="${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}"
-for plugin in zsh-autosuggestions zsh-syntax-highlighting; do
+for plugin in zsh-syntax-highlighting; do
     if [ ! -d "${ZSH_CUSTOM}/plugins/${plugin}" ]; then
         echo "==> Installing zsh plugin ${plugin}..."
         git clone --depth 1 "https://github.com/zsh-users/${plugin}" "${ZSH_CUSTOM}/plugins/${plugin}" \
@@ -27,6 +27,28 @@ for plugin in zsh-autosuggestions zsh-syntax-highlighting; do
         echo "==> Plugin ${plugin} already installed"
     fi
 done
+
+DEJA_PLUGIN="${ZSH_CUSTOM}/plugins/deja"
+DEJA_TAG="${DEJA_TAG:-v0.4.2}"
+if [ ! -d "${DEJA_PLUGIN}" ]; then
+    echo "==> Installing deja plugin ${DEJA_TAG}..."
+    git clone --depth 1 --branch "${DEJA_TAG}" \
+        "https://github.com/Giammarco-Ferranti/deja" "${DEJA_PLUGIN}" \
+        || fail "Failed to clone deja plugin"
+else
+    echo "==> deja plugin already installed"
+fi
+
+if ! command -v deja >/dev/null 2>&1; then
+    echo "==> WARNING: deja binary not found on PATH; the plugin will no-op until the image is rebuilt"
+fi
+
+if [ ! -f "$HOME/.local/share/deja/history.sqlite" ]; then
+    if command -v deja >/dev/null 2>&1; then
+        echo "==> Importing shell history into deja..."
+        deja import || echo "==> WARNING: deja import failed (non-fatal)"
+    fi
+fi
 
 # Copy the repository's base Oh My Zsh configuration. If setup-opencode.sh ran
 # first, ~/.zshrc also contained the OpenCode PATH block; restore it so rerunning

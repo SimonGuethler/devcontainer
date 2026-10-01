@@ -1,16 +1,21 @@
 ---
 name: hyper-analyze
-description: Full research and analysis of a topic, system, plan, or implementation through multiple rounds of independent critics, cross-critique, deeper investigation, and evidence reconciliation. Use for hyper-analyze or an explicitly requested multi-critic deep dive; use hyper-review for ordinary in-depth assessments with optional delegation.
+description: Investigate a difficult decision, broad problem, or uncertain assumptions by comparing explanations and alternatives through multiple critic rounds. Use for hyper-analyze or an explicitly requested multi-critic deep dive; use hyper-review to assess a concrete target against its intended outcome.
 ---
 
 # Hyper-analyze
+
+Start with the underlying problem and the decision to support. Investigate whether
+the proposed approach addresses the right question and which viable alternative
+best fits the user's constraints, rather than only assessing a supplied solution.
 
 Load the installed `hyper-review` skill first. Its evidence standards, review
 lenses, verification rules, follow-up handling, and write boundaries apply here.
 This skill extends that foundation with required independent critic work when
 delegation is available and permitted; it replaces hyper-review's optional
-delegation guidance for this invocation. The round and stopping rules below also
-replace the foundation's earlier stopping point. Do not silently downgrade to
+delegation guidance for this invocation. The problem framing, deliverable, round,
+and stopping rules below replace the foundation's artifact-first framing,
+assessment format, and earlier stopping point. Do not silently downgrade to
 hyper-review or stop after the first useful assessment.
 
 ## Frame and investigate
@@ -18,6 +23,15 @@ hyper-review or stop after the first useful assessment.
 - Establish the target, inspected state, decision to support, constraints, and
   material questions. Respect explicit time, cost, and scope limits; depth does
   not imply unlimited research or permission to implement changes.
+- Define the underlying problem, desired outcomes, and decision criteria before
+  judging a preferred solution. Separate explicit user constraints and accepted
+  decisions from tentative assumptions. Preserve settled choices unless new
+  evidence justifies revisiting them; explain that evidence without silently
+  replacing the user's decision.
+- Investigate plausible competing explanations and viable alternatives, including
+  keeping the current approach when applicable. Compare them against the same
+  criteria, costs, and risks. Do not invent weak alternatives to favor a preferred
+  answer or force an architecture choice onto a question needing an explanation.
 - Treat material findings as both significant defects and worthwhile improvements,
   including simplifications or better alternatives with concrete benefits for the
   user's goal. Apply this meaning when assigning critics and deciding whether
@@ -130,7 +144,14 @@ harder." Give brief progress updates on what changed and what the next round tes
 
 ## Deliver the synthesis
 
-Use hyper-review's evidence-backed assessment format. Add a concise account of
+Lead with a reasoned recommendation or best-supported explanation, tied to the
+problem and decision criteria. Compare viable alternatives and trade-offs, explain
+the decisive evidence and uncertainty, and state what would change the conclusion.
+Include prioritized critic findings and verification gaps using hyper-review's
+evidence standards. If evidence cannot distinguish the alternatives, say so and
+identify the smallest useful next investigation instead of forcing a winner.
+
+Add a concise account of
 the rounds and critic perspectives actually completed, what later rounds changed,
 their coverage, and any unavailable or failed work. Explain material disagreements
 and how they were resolved or what would resolve them. Retain finding IDs for

@@ -1,12 +1,14 @@
 ---
 name: hyper-review
-description: In-depth, evidence-based research and critical review of a topic, codebase, architecture, plan, or implementation against a plan. Use for hyper-review, deep research, or comprehensive assessments seeking gaps and improvements; not routine quick questions or narrow diff reviews.
+description: Evidence-based assessment of a concrete artifact or bounded topic for correctness, completeness, plan alignment, and worthwhile improvements. Use for hyper-review or an in-depth review of code, a system, or a plan; use hyper-analyze to investigate the underlying problem, assumptions, and alternatives through multiple critic rounds.
 ---
 
 # Hyper-review
 
-Investigate deeply enough to support a decision, uncover material gaps, and
-recommend practical improvements. Depth comes from tracing evidence, testing
+Start with the concrete artifact or bounded topic and its intended outcome.
+Assess whether it is sound, complete, and worth improving. Investigate deeply
+enough to uncover material gaps and recommend practical improvements.
+Depth comes from tracing evidence, testing
 assumptions, and resolving contradictions, not from report length or finding quotas.
 
 ## Establish the review boundary
@@ -14,6 +16,11 @@ assumptions, and resolving contradictions, not from report length or finding quo
 - Identify the question, target, constraints, and expected outcome from the
   request and available context. State material assumptions; ask only for missing
   information that changes the investigation. Continue independent work meanwhile.
+- Evaluate the target against its goals, contracts, and accepted decisions.
+  Challenge its premise when evidence warrants it, but do not automatically reopen
+  settled choices. If a consequential unresolved question merits hyper-analyze,
+  explain why and recommend that next step; do not silently launch its multi-round
+  workflow without a request for that deeper analysis.
 - Establish the inspected state: repository/revision and working-tree scope,
   plan version, or research date and relevant product versions. Read applicable
   instructions and representative patterns before assessing alternatives.
@@ -136,7 +143,9 @@ code checklist onto nontechnical research or research unrelated to the decision.
 
 ## Deliver the assessment
 
-Lead with the conclusion and most consequential findings. Include the relevant
+Lead with the assessment of the target and its most consequential findings.
+Emphasize prioritized defects, worthwhile improvements, and verification gaps.
+Include the relevant
 scope, prioritized findings, plan coverage or alternatives when applicable, and
 recommended next actions. Make evidence easy to follow with exact file/symbol/line
 references or source links. Report checks actually run and their outcomes separately

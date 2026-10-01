@@ -72,9 +72,17 @@ ARG PYRIGHT_VERSION=1.1.413
 RUN npm install --global "pyright@${PYRIGHT_VERSION}" \
     && pyright --version
 
-# Install the Rust toolchain (rustc, cargo, clippy, rustfmt, rust-analyzer) system-wide.
-# Intentionally track stable for this development image; projects can pin their
-# own toolchain with rust-toolchain.toml.
+# deja (predictive zsh autosuggestions, Go binary; tarball layout: deja, LICENSE, README.md).
+# Pinned + SHA-256 like the other tools; version must stay in sync with the deja plugin
+# pin in setup-zsh.sh and the deja block in .zshrc.
+ARG DEJA_VERSION=0.4.2
+RUN DEJA_SHA=32db767e728d447941a70cf7dc95376a1e0a96168ad79674593715ac165ed310 \
+    && curl -fsSL "https://github.com/Giammarco-Ferranti/deja/releases/download/v${DEJA_VERSION}/deja_${DEJA_VERSION}_linux_amd64.tar.gz" -o /tmp/deja.tar.gz \
+    && echo "${DEJA_SHA}  /tmp/deja.tar.gz" | sha256sum -c - \
+    && tar -xzf /tmp/deja.tar.gz -C /usr/local/bin deja \
+    && chmod +x /usr/local/bin/deja \
+    && deja --version \
+    && rm -f /tmp/deja.tar.gz
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
     PATH=/usr/local/cargo/bin:$PATH

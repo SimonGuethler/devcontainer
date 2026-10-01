@@ -657,6 +657,7 @@ write_configuration() {
         --arg roundtable "$ROUNDTABLE_FLAG" --arg roundtable_version "$ROUNDTABLE_PLUGIN_VER" \
         --arg roundtable_mode "$ROUNDTABLE_MODE" \
         --arg openagent "$OPENAGENT_FLAG" --arg openagent_version "$OPENAGENT_PLUGIN_VER" \
+        --arg omo_model "$OMO_MODEL" \
         --arg browser_spec "$PLAYWRIGHT_MCP_SPEC" --arg output "$PLAYWRIGHT_OUTPUT_DIR" '
         def configure($name; $enabled; $choice; $defaults):
             if $choice == "no" then
@@ -685,6 +686,11 @@ write_configuration() {
         | if $openagent == "yes" then
             .plugin += ["oh-my-openagent@" + $openagent_version]
             | .default_agent = "apollo"
+            # Local/native agents are not covered by OpenAgent role overrides.
+            | if $omo_model != "" then
+              reduce ["apollo", "workspace-review", "build", "plan"][] as $agent
+                (.; .agent[$agent].model = $omo_model)
+              else . end
           else . end
         | .provider.litellm.npm //= "@ai-sdk/openai-compatible"
         | .provider.litellm.name //= "LiteLLM"

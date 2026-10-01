@@ -68,6 +68,15 @@ For project work, change to your project's directory before starting OpenCode.
 - The repository root is mounted at `/workspace`; files there persist on the host.
 - The root `.gitignore` allows only devcontainer files and documentation. Nested projects keep their own Git repositories.
 - Home-directory settings, OpenCode credentials, and manually installed packages are not persisted separately; recreating the container discards them.
+- The container stays running when VS Code closes and starts automatically when Docker starts, unless explicitly stopped. Enable Docker Desktop startup at sign-in if you want this after reboot.
+
+Stop the container without removing it from the repository root **on the host**:
+
+```sh
+docker compose -f .devcontainer/compose.yml stop dev
+```
+
+Run `docker compose -f .devcontainer/compose.yml start dev` to resume it and restore automatic startup.
 
 Stop and remove the container from the repository root **on the host**:
 
@@ -164,11 +173,11 @@ CodeGraph defaults to enabled with automatic provisioning (`[opencode].codegraph
 
 After running `setup-opencode.sh --openagent`, restart OpenCode and start a new session on Apollo. The primary-agent cycle is **Apollo → Sisyphus → Prometheus → Atlas → OpenCode-Builder → Apollo**. Setup sets `default_agent` to `apollo`, configures OMO's core order, and keeps Hephaestus and native Plan as subagents rather than cycle entries. OpenCode's native builder remains available as OpenCode-Builder. Rerunning setup reapplies this cycle; additional user-defined primary agents can still appear. Existing sessions or an explicit `--agent` selection can retain a different active agent.
 
-Apollo's source is `.devcontainer/opencode/agents/apollo.md`. The image build and post-create harness install it into `~/.config/opencode/agents/apollo.md`, backing up a differing installed copy. Apollo provides analysis and review without implementation, writes Markdown plans or analysis documents at the requested or established project destination only when asked, and keeps temporary research artifacts under `<project-root>/.apollo/tmp/` (repository clones in `repos/`, downloads in `downloads/`, extracted text in `extracted/`, and working notes in `notes/`). After editing its source, rerun `bash /workspace/.devcontainer/setup-opencode-harness.sh` and restart OpenCode. The local harness installs the agent without changing provider settings; the main setup with `--openagent` configures startup and cycling.
+Apollo's source is `.devcontainer/opencode/agents/apollo.md`. The image build and post-create harness install it into `~/.config/opencode/agents/apollo.md`, backing up a differing installed copy. Apollo analyzes without edits by default, makes edits or implements changes only when explicitly requested, then returns to analysis. Tool permissions are unrestricted to avoid routine approval prompts. When authorized, it keeps temporary research artifacts under `<project-root>/.apollo/tmp/` (repository clones in `repos/`, downloads in `downloads/`, extracted text in `extracted/`, and working notes in `notes/`). After editing its source, rerun `bash /workspace/.devcontainer/setup-opencode-harness.sh` and restart OpenCode. The local harness installs the agent without changing provider settings; the main setup with `--openagent` configures startup and cycling.
 
 Setup disables the faulty Goal hook: OpenAgent 4.19.4 can interpret ordinary messages or expanded commands as objectives and reject them above 2000 characters. Reruns also change an existing `[opencode].goal.enabled` to `false`, backing up the previous JSON configuration. This is a compatibility workaround, not an upstream code fix; dedicated `/goal` continuation is unavailable until a corrected release is verified. Agent orchestration remains available. New configurations default to at most three background tasks. Team Mode defaults to enabled; existing explicit settings are preserved. Worktrees and tmux visualization are optional and are not enabled by this setup.
 
-The workspace does not impose any model. Optional `--omo-model litellm/<model-id>` (or `OMO_MODEL`) sets all built-in agent/category model assignments, replacing earlier assignments so rerunning setup can switch models. Other role settings and custom roles remain intact. Omit both the flag and environment variable to preserve existing model assignments. Without configured assignments, OpenAgent model selection uses upstream defaults and may require providers you have not configured; selecting a model in the UI does not necessarily configure every subagent. Restart OpenCode after switching models. Edit individual assignments in `~/.omo/omo.json` under `[opencode].agents` and `[opencode].categories`.
+The workspace does not impose any model. Optional `--omo-model litellm/<model-id>` (or `OMO_MODEL`) sets all built-in agent/category model assignments, replacing earlier assignments so rerunning setup can switch models. These model assignments also apply to Apollo, workspace-review, and native Build/Plan. Setup leaves existing variant and reasoning settings unchanged. Other role settings and custom roles remain intact. Omit a flag and its environment variable to preserve its existing assignments. Without configured assignments, OpenAgent model selection uses upstream defaults and may require providers you have not configured; selecting a model in the UI does not necessarily configure every subagent. Restart OpenCode after switching models. Edit individual assignments in `~/.omo/omo.json` under `[opencode].agents` and `[opencode].categories`.
 
 The helper backs up changed `~/.omo/omo.json` files and preserves custom settings except for the Goal compatibility override and enforced telemetry opt-out. If `~/.omo/omo.jsonc` already exists, setup stops before installation/configuration changes: set `goal.enabled` to `false` manually inside its `[opencode]` object and manage that JSONC configuration manually. The duplicate built-in Context7 MCP is disabled in generated JSON; our existing Context7 option continues to control it. Local workspace-memory remains available.
 
@@ -196,11 +205,13 @@ honor them; they do not block model requests, MCP queries, or package downloads.
 | Agent colors | Setup supplies blue for Build and orange for Plan when no explicit color exists; custom colors are preserved. Rerun setup and restart OpenCode to apply. |
 | Disable an integration | Use its `--no-*` flag or deselect it in the menu |
 | JSONC config | Existing `opencode.jsonc` files must be edited manually |
-| Local agents and skills | Includes Apollo and workspace-review plus verification, browser-check, project-memory, and hyper-review skills |
+| Local agents and skills | Includes Apollo and workspace-review plus verification, browser-check, project-memory, hyper-review, and hyper-analyze skills |
 | Zsh setup | Backs up a differing `.zshrc` before replacement; manages OpenCode PATH entries in marked blocks |
 
-Use `/hyper-review <topic or review request>` for in-depth research, code/system
-reviews, or checking an implementation against a plan. The command loads the
+Use `/hyper-review <target or review request>` to assess a concrete artifact or
+bounded topic against its intended outcome: correctness, completeness, plan
+alignment, and worthwhile improvements. Its report emphasizes prioritized findings
+and verification gaps; specialist delegation is optional. The command loads the
 `hyper-review` skill using the current agent. For example:
 `/hyper-review Check this implementation against _project_plans/example.md and prioritize gaps and improvements`.
 Without arguments, it uses the established conversation scope or asks for a target.
@@ -208,7 +219,13 @@ The workflow reports evidence, trade-offs, and verification limits; a review alo
 does not request fixes. Rerun the harness installer and restart OpenCode after
 changing the command file.
 
-Use `/hyper-analyze <topic or review request>` for a full deep dive with at least
+Use `/hyper-analyze <problem or decision>` to investigate the underlying problem,
+assumptions, competing explanations, and viable alternatives, including retaining
+the current approach when applicable. Its report emphasizes a reasoned recommendation,
+trade-offs, critic findings, and what would change the conclusion. For example:
+`/hyper-analyze Is the Kubernetes migration strategy appropriate for our constraints, and which alternatives or failure modes have we overlooked?`
+
+The analysis uses at least
 two independent critics across three required rounds: independent discovery,
 cross-critique and deeper investigation, and a synthesis stress test. Targeted
 rounds continue while material leads or investigable coverage gaps remain, with
@@ -219,6 +236,29 @@ research quality. Unlike `/hyper-review`, delegation is required when available
 and permitted. If the active agent cannot delegate, it reports reduced coverage
 and continues useful direct analysis without claiming a completed critic panel.
 Both workflows recommend improvements without automatically implementing them.
+Both respect explicit constraints and accepted decisions, revisiting them when
+new evidence warrants it. Review may recommend analysis for a consequential open
+question, but does not automatically escalate into the multi-round workflow.
+
+Use `/image-gen model=<image-model-id> <prompt>` to generate one image, or request
+an edit with a local reference PNG and optional mask. This is a command only;
+there is no keyword-triggered image skill. The command delegates to an installed
+script, reads `provider.litellm.options.apiKey` and `baseURL` from the setup JSON,
+and supplies no provider URL or default model. Edit capability must be verified
+for the selected backend. The API paths are `/images/generations` and
+`/images/edits`; edits use a file upload. An optional size is sent only when
+requested; otherwise the backend chooses it. Output goes to a descriptive path
+in the current project unless another destination is requested. Existing files
+are never replaced. Only one base64 PNG is supported; its header and requested
+dimensions are checked, without full image decoding. URL-only
+responses, other formats, multiple outputs, JSONC, and provider-specific extras
+are unsupported. Failed requests are not retried automatically.
+
+Rerun `bash /workspace/.devcontainer/setup-opencode-harness.sh` and start a new
+OpenCode session after changing the command or script. To check an existing
+installation without changing it, compare the command and Bash script with their
+counterparts under `~/.config/opencode/` using `cmp`; this is separate from the
+isolated tests. The script requires Bash, jq, curl, and GNU coreutils.
 
 Change only LSP and Context7 settings without changing provider credentials:
 

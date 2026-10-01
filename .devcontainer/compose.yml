@@ -4,6 +4,7 @@ services:
   dev:
     image: gpu-workspace:dev
     hostname: gpu-workspace-dev
+    restart: unless-stopped
 
     build:
       context: .
