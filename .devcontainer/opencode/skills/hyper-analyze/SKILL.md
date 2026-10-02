@@ -61,6 +61,10 @@ all of these examples:
   assignments, not invented tool or agent identifiers. Separate tasks may use the
   same agent type with independent initial context; distinct models are not required.
   Respect specialist prerequisites, including any restrictions on plan locations.
+  Confirm delegation is actually available and permitted before assigning
+  critics, so a capability gap changes the plan at the start instead of being
+  discovered mid-flight; if unavailable, fall back to direct analysis early and
+  report the reduced coverage.
 - Give each critic the goal, bounded question, relevant raw artifacts or source
   locations, inspected revision, constraints, and tool/write boundaries. Include
   the applicable skill guidance through supported context mechanisms. Do not give
@@ -98,8 +102,11 @@ reasoning; relabeling or summarizing earlier output does not count.
    original evidence without seeing earlier verdicts or the synthesis. Use a fresh
    context containing the task, constraints, and source material, without inherited
    discussion of findings; telling an already-exposed critic to ignore them does
-   not restore independence. Collect that assessment before revealing the synthesis
-   for comparison and challenge. If context isolation is unavailable, disclose the
+   not restore independence. Spawn that fresh critic as a new independent task,
+   not a continuation of an earlier critic's session, because a continued session
+   carries its prior context. Collect that fresh assessment before revealing the
+   synthesis for comparison and challenge, and resume earlier critics only for
+   that later stage. If context isolation is unavailable, disclose the
    limitation and continue with the strongest available scrutiny.
    Challenge both conclusions and
    proposed corrections: hidden assumptions, counterexamples, simpler alternatives,
@@ -161,4 +168,8 @@ and distinguish implementation status from verification status where applicable.
 
 Deliver one coherent assessment, not concatenated critic reports. Be explicit
 about whether all three rounds and any needed follow-ups completed; never claim
-full multi-critic coverage when only a fallback analysis was possible.
+full multi-critic coverage when only a fallback analysis was possible. When
+material candidate findings or alternatives were investigated and rejected,
+include a short rejected-candidates summary with the candidate and the disqualifying
+evidence, so the funnel from suspicion to conclusion is visible without
+reconstructing the working register.

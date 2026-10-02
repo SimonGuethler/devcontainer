@@ -58,11 +58,14 @@ run
 grep -q 'mode: subagent' "${CONFIG_DIR}/agents/workspace-review.md"
 cmp -s "${SCRIPT_DIR}/opencode/agents/apollo-analyzer.md" "${CONFIG_DIR}/agents/apollo-analyzer.md"
 skills=("${CONFIG_DIR}"/skills/*)
-[[ ${#skills[@]} -eq 5 ]]
+[[ ${#skills[@]} -eq 6 ]]
 cmp -s "${SCRIPT_DIR}/opencode/skills/hyper-review/SKILL.md" "${CONFIG_DIR}/skills/hyper-review/SKILL.md"
 cmp -s "${SCRIPT_DIR}/opencode/commands/hyper-review.md" "${CONFIG_DIR}/commands/hyper-review.md"
 cmp -s "${SCRIPT_DIR}/opencode/skills/hyper-analyze/SKILL.md" "${CONFIG_DIR}/skills/hyper-analyze/SKILL.md"
 cmp -s "${SCRIPT_DIR}/opencode/commands/hyper-analyze.md" "${CONFIG_DIR}/commands/hyper-analyze.md"
+cmp -s "${SCRIPT_DIR}/opencode/skills/hyper-research/SKILL.md" "${CONFIG_DIR}/skills/hyper-research/SKILL.md"
+cmp -s "${SCRIPT_DIR}/opencode/commands/hyper-research.md" "${CONFIG_DIR}/commands/hyper-research.md"
+cmp -s "${SCRIPT_DIR}/opencode/commands/brainstorm.md" "${CONFIG_DIR}/commands/brainstorm.md"
 cmp -s "${SCRIPT_DIR}/opencode/commands/image-gen.md" "${CONFIG_DIR}/commands/image-gen.md"
 cmp -s "${SCRIPT_DIR}/opencode/commands/image-gen.sh" "${CONFIG_DIR}/commands/image-gen.sh"
 bash "${CONFIG_DIR}/commands/image-gen.sh" --help > "${TEST_ROOT}/image-help"

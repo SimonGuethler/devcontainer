@@ -115,6 +115,18 @@ code checklist onto nontechnical research or research unrelated to the decision.
   finding provide location/source, trigger or evidence, consequence, and the
   smallest useful correction or next step. Note confidence where uncertainty
   changes the decision; do not manufacture numeric precision.
+- Calibrate every finding by trigger and impact, not by concern level, in any
+  lens: no material finding without concrete evidence and realistic consequences,
+  and no consequential defect without realistic preconditions. Prefer the
+  smallest reproducible check over theoretical language.
+- Verify the strongest findings before reporting when the needed checks are
+  permitted. For code and system findings, run the failing check, a local
+  fixture, a dry run, or a minimal reproduction; for research claims, verify the
+  claim against the cited source material. Record the exact command or source
+  and the observed result. Use the verification statuses defined below;
+  separately track whether a candidate is confirmed, rejected, or unresolved.
+  Record why a check is unsafe or unavailable rather than treating it as
+  confirmation. Never run destructive or externally visible checks.
 - Separate defects and unmet requirements from optional improvements. For
   improvements, explain the expected benefit, effort/dependencies, and trade-off.
   Prefer changes compatible with existing architecture and conventions; recommend
@@ -123,6 +135,10 @@ code checklist onto nontechnical research or research unrelated to the decision.
   compatibility risks, migration work, operational burden, and new failure modes.
   Explain material costs and why the expected benefit justifies them; a confirmed
   defect does not establish that the first proposed fix is appropriate.
+- For each surviving defect or unmet requirement, propose the smallest check that
+  would have caught it: an existing test to strengthen, a missing failure case to
+  add, or a minimal new regression check. Tie it to the defect's trigger so
+  recurrence is detectable.
 - For each material unresolved question, identify the smallest useful experiment,
   measurement, or missing fact that would resolve it and whether it blocks the
   recommendation. Perform permitted checks when practical; otherwise state the
@@ -148,9 +164,16 @@ Emphasize prioritized defects, worthwhile improvements, and verification gaps.
 Include the relevant
 scope, prioritized findings, plan coverage or alternatives when applicable, and
 recommended next actions. Make evidence easy to follow with exact file/symbol/line
-references or source links. Report checks actually run and their outcomes separately
-from suggested checks, plus material exclusions and unresolved questions.
+references or source links. Give each material finding a verification status:
+reproduced (with the command and observed output), source-confirmed or statically
+verified (with the cited evidence), or unverified (with the specific next check
+and any execution limits), mirroring the plan-quality status discipline. Report
+checks actually run and their outcomes separately from suggested checks, plus
+material exclusions and unresolved questions.
 
 If no actionable defects are found, say so without claiming proof of correctness.
-Be thorough in the investigation and concise in the report; do not pad it with
+When material candidates were investigated and rejected or downgraded, include
+a short downgraded/rejected-candidates section with the candidate and the disqualifying
+evidence, so the funnel from suspicion to finding is visible. Be thorough in the
+investigation and concise in the report; do not pad it with
 cosmetic preferences, speculative rewrites, or an exhaustive tool transcript.
