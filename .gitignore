@@ -13,6 +13,7 @@
 !.devcontainer/setup-opencode-harness.sh
 !.devcontainer/setup-opencode-cli.sh
 !.devcontainer/test-opencode-harness.sh
+!.devcontainer/test-opencode-agent-display.sh
 !.devcontainer/opencode/
 !.devcontainer/opencode/commands/
 !.devcontainer/opencode/commands/hyper-review.md
@@ -28,7 +29,7 @@
 !.devcontainer/opencode/optional-skills/paper-search/
 !.devcontainer/opencode/optional-skills/paper-search/SKILL.md
 !.devcontainer/opencode/agents/
-!.devcontainer/opencode/agents/apollo.md
+!.devcontainer/opencode/agents/apollo-analyzer.md
 !.devcontainer/opencode/agents/workspace-review.md
 !.devcontainer/opencode/skills/
 !.devcontainer/opencode/skills/workspace-verification/

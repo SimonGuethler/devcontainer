@@ -685,10 +685,10 @@ write_configuration() {
         | .plugin |= map(select((is_plugin("oh-my-openagent") or is_plugin("oh-my-opencode")) | not))
         | if $openagent == "yes" then
             .plugin += ["oh-my-openagent@" + $openagent_version]
-            | .default_agent = "apollo"
+            | .default_agent = "apollo-analyzer"
             # Local/native agents are not covered by OpenAgent role overrides.
             | if $omo_model != "" then
-              reduce ["apollo", "workspace-review", "build", "plan"][] as $agent
+              reduce ["apollo-analyzer", "workspace-review", "build", "plan"][] as $agent
                 (.; .agent[$agent].model = $omo_model)
               else . end
           else . end

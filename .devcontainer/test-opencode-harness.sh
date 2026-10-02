@@ -56,7 +56,7 @@ fixture defaults
 run
 [[ ! -e "$CONFIG_FILE" ]]
 grep -q 'mode: subagent' "${CONFIG_DIR}/agents/workspace-review.md"
-cmp -s "${SCRIPT_DIR}/opencode/agents/apollo.md" "${CONFIG_DIR}/agents/apollo.md"
+cmp -s "${SCRIPT_DIR}/opencode/agents/apollo-analyzer.md" "${CONFIG_DIR}/agents/apollo-analyzer.md"
 skills=("${CONFIG_DIR}"/skills/*)
 [[ ${#skills[@]} -eq 5 ]]
 cmp -s "${SCRIPT_DIR}/opencode/skills/hyper-review/SKILL.md" "${CONFIG_DIR}/skills/hyper-review/SKILL.md"
@@ -472,8 +472,8 @@ printf 'PASS: Zen disabled; Roundtable modes, tuple preservation, reruns, dry-ru
 
 main_run --openagent --omo-model litellm/test-model
 check '([.plugin[] | select(startswith("oh-my-openagent@"))] == ["oh-my-openagent@4.19.4"])'
-check '.default_agent == "apollo"'
-cmp -s "${SCRIPT_DIR}/opencode/agents/apollo.md" "${isolated_home}/.config/opencode/agents/apollo.md"
+check '.default_agent == "apollo-analyzer"'
+cmp -s "${SCRIPT_DIR}/opencode/agents/apollo-analyzer.md" "${isolated_home}/.config/opencode/agents/apollo-analyzer.md"
 omo_config="${isolated_home}/.omo/omo.json"
 jq -e '."[opencode]" | (.goal.enabled == false) and (.goal.auto_start == false)
     and (.team_mode.enabled == true) and .background_task.defaultConcurrency == 3
@@ -483,6 +483,7 @@ jq -e '."[opencode]" | (.goal.enabled == false) and (.goal.auto_start == false)
     and .sisyphus_agent.default_builder_enabled == true
     and .sisyphus_agent.replace_plan == true
     and .agents.hephaestus.mode == "subagent"
+    and .agents["apollo-analyzer"].displayName == "Apollo - Analyzer"
     and .agents.sisyphus.model == "litellm/test-model"
     and .agents.explore.model == "litellm/test-model"
     and .categories.quick.model == "litellm/test-model"' "$omo_config" >/dev/null
@@ -506,9 +507,9 @@ chmod +x "${isolated_home}/.opencode/bin/opencode"
 main_run --install --extension --all --omo-model "$switch_model"
 jq -e --arg model "$switch_model" --slurpfile before "${TEST_ROOT}/omo-before" '
     ."[opencode]" as $config
-    | ($config.agents | del(.custom) | length == 11)
+    | ($config.agents | del(.custom, ."apollo-analyzer") | length == 11)
     and ($config.categories | del(.custom) | length == 8)
-    and ($config.agents | del(.custom) | all(.[]; .model == $model))
+    and ($config.agents | del(.custom, ."apollo-analyzer") | all(.[]; .model == $model))
     and ($config.categories | del(.custom) | all(.[]; .model == $model))
     and (del(."[opencode]".agents[].model, ."[opencode]".categories[].model)
         == ($before[0] | del(."[opencode]".agents[].model, ."[opencode]".categories[].model)))
@@ -527,7 +528,7 @@ jq '."[opencode]".agents.sisyphus.variant = "low"
     | ."[opencode]".agents.custom.reasoning = "low"' \
     "$omo_config" > "${TEST_ROOT}/omo-migrated-reasoning"
 cp "${TEST_ROOT}/omo-migrated-reasoning" "$omo_config"
-jq '.agent.apollo.variant = "low" | .agent.build.variant = "high"' \
+jq '.agent["apollo-analyzer"].variant = "low" | .agent.build.variant = "high"' \
     "$CONFIG_FILE" > "${TEST_ROOT}/native-variants"
 cp "${TEST_ROOT}/native-variants" "$CONFIG_FILE"
 cp "$omo_config" "${TEST_ROOT}/omo-before"
@@ -537,14 +538,14 @@ OMO_VARIANT=max main_run --dry-run --openagent --omo-model "$switch_model"
 cmp -s "$omo_config" "${TEST_ROOT}/omo-before"
 cmp -s "$CONFIG_FILE" "${TEST_ROOT}/native-before"
 OMO_VARIANT=max main_run --openagent --omo-model "$switch_model"
-check '[.agent.apollo, .agent["workspace-review"], .agent.build, .agent.plan]
+check '[.agent["apollo-analyzer"], .agent["workspace-review"], .agent.build, .agent.plan]
     | all(.[]; .model == "litellm/test-model-final")'
-check '.agent.apollo.variant == "low" and .agent.build.variant == "high"
+check '.agent["apollo-analyzer"].variant == "low" and .agent.build.variant == "high"
     and (.agent["workspace-review"] | has("variant") | not)
     and (.agent.plan | has("variant") | not)'
 jq -e --arg model "$switch_model" --slurpfile before "${TEST_ROOT}/omo-before" '
     ."[opencode]" as $config
-    | ($config.agents | del(.custom) | all(.[]; .model == $model))
+    | ($config.agents | del(.custom, ."apollo-analyzer") | all(.[]; .model == $model))
     and ($config.categories | del(.custom) | all(.[]; .model == $model))
     and (del(."[opencode]".agents[].model, ."[opencode]".categories[].model)
         == ($before[0] | del(."[opencode]".agents[].model, ."[opencode]".categories[].model)))
@@ -592,7 +593,7 @@ jq -e --arg model "$switch_model" '."[opencode]".goal.enabled == false and ."[op
 [[ -n "$(find "${isolated_home}/.omo" -name 'omo.json.backup.*' -print -quit)" ]]
 # A fresh generic setup must not create model assignments without explicit input.
 env HOME="${TEST_ROOT}/generic-omo" OMO_MODEL='' bash "${SCRIPT_DIR}/setup-openagent.sh" > "${TEST_ROOT}/output" 2>&1
-jq -e '."[opencode]" | .agents == {hephaestus: {mode: "subagent"}} and (has("categories") | not) and (.goal.enabled == false)' \
+jq -e '."[opencode]" | .agents == {hephaestus: {mode: "subagent"}, "apollo-analyzer": {displayName: "Apollo - Analyzer"}} and (has("categories") | not) and (.goal.enabled == false)' \
     "${TEST_ROOT}/generic-omo/.omo/omo.json" >/dev/null
 printf 'PASS: old goal default disabled and generic setup has no model assignments\n'
 
