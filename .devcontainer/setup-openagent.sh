@@ -44,7 +44,8 @@ CONTENT="$(printf '%s' "$EXISTING" | jq -e -s --arg model "$MODEL" '
         | if $model != "" then
             reduce ["sisyphus", "hephaestus", "prometheus", "oracle", "librarian", "explore", "multimodal-looker", "metis", "momus", "atlas", "sisyphus-junior"][] as $agent
                 (.; .agents[$agent].model = $model)
-            | reduce ["visual-engineering", "ultrabrain", "deep", "artistry", "quick", "unspecified-low", "unspecified-high", "writing"][] as $category
+            # Keep legacy deep for older supported releases; 5.1.x splits that lane.
+            | reduce ["visual-engineering", "ultrabrain", "deep", "deep-low", "deep-high", "artistry", "quick", "unspecified-low", "unspecified-high", "writing"][] as $category
                 (.; .categories[$category].model = $model)
           else . end
         | .telemetry = false

@@ -22,6 +22,7 @@
 !.devcontainer/opencode/commands/image-gen.sh
 !.devcontainer/opencode/commands/hyper-research.md
 !.devcontainer/opencode/commands/brainstorm.md
+!.devcontainer/opencode/commands/hyper-execute.md
 !.devcontainer/opencode/playwright-cli.config.json
 !.devcontainer/opencode/optional-skills/
 !.devcontainer/opencode/optional-skills/playwright-cli/
@@ -46,6 +47,12 @@
 !.devcontainer/opencode/skills/hyper-analyze/SKILL.md
 !.devcontainer/opencode/skills/hyper-research/
 !.devcontainer/opencode/skills/hyper-research/SKILL.md
+!.devcontainer/opencode/skills/hyper-execute/
+!.devcontainer/opencode/skills/hyper-execute/SKILL.md
+!.devcontainer/opencode/skills/hyper-execute/references/
+!.devcontainer/opencode/skills/hyper-execute/references/mission-template.md
+!.devcontainer/opencode/skills/hyper-execute/references/verifier-prompts.md
+!.devcontainer/opencode/skills/hyper-execute/references/opencode-runtime.md
 !.gitattributes
 !.gitignore
 !README.md

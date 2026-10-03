@@ -33,7 +33,7 @@ while [[ $# -gt 0 ]]; do
         --help)
             cat <<'EOF'
 Usage: bash setup-opencode-harness.sh [options]
-Installs Apollo - Analyzer, workspace-review, six skills, and /hyper-review, /hyper-analyze, /hyper-research, /image-gen, and /brainstorm; preserves other files.
+Installs Apollo - Analyzer, workspace-review, seven skills, and /hyper-review, /hyper-analyze, /hyper-research, /hyper-execute, /image-gen, and /brainstorm; preserves other files.
   --config-dir <path>       OpenCode config directory (default ~/.config/opencode)
   --dry-run                 Preview without changing configuration or printing credentials
   --lsp / --no-lsp           Enable/disable native LSP; unchanged when omitted
@@ -50,6 +50,7 @@ FILES=(
     commands/hyper-review.md
     commands/hyper-analyze.md
     commands/hyper-research.md
+    commands/hyper-execute.md
     commands/brainstorm.md
     commands/image-gen.md
     commands/image-gen.sh
@@ -61,6 +62,10 @@ FILES=(
     skills/hyper-review/SKILL.md
     skills/hyper-analyze/SKILL.md
     skills/hyper-research/SKILL.md
+    skills/hyper-execute/SKILL.md
+    skills/hyper-execute/references/mission-template.md
+    skills/hyper-execute/references/verifier-prompts.md
+    skills/hyper-execute/references/opencode-runtime.md
 )
 
 # Stage and validate all inputs before touching the destination.

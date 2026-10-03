@@ -58,13 +58,18 @@ run
 grep -q 'mode: subagent' "${CONFIG_DIR}/agents/workspace-review.md"
 cmp -s "${SCRIPT_DIR}/opencode/agents/apollo-analyzer.md" "${CONFIG_DIR}/agents/apollo-analyzer.md"
 skills=("${CONFIG_DIR}"/skills/*)
-[[ ${#skills[@]} -eq 6 ]]
+[[ ${#skills[@]} -eq 7 ]]
 cmp -s "${SCRIPT_DIR}/opencode/skills/hyper-review/SKILL.md" "${CONFIG_DIR}/skills/hyper-review/SKILL.md"
 cmp -s "${SCRIPT_DIR}/opencode/commands/hyper-review.md" "${CONFIG_DIR}/commands/hyper-review.md"
 cmp -s "${SCRIPT_DIR}/opencode/skills/hyper-analyze/SKILL.md" "${CONFIG_DIR}/skills/hyper-analyze/SKILL.md"
 cmp -s "${SCRIPT_DIR}/opencode/commands/hyper-analyze.md" "${CONFIG_DIR}/commands/hyper-analyze.md"
 cmp -s "${SCRIPT_DIR}/opencode/skills/hyper-research/SKILL.md" "${CONFIG_DIR}/skills/hyper-research/SKILL.md"
 cmp -s "${SCRIPT_DIR}/opencode/commands/hyper-research.md" "${CONFIG_DIR}/commands/hyper-research.md"
+cmp -s "${SCRIPT_DIR}/opencode/skills/hyper-execute/SKILL.md" "${CONFIG_DIR}/skills/hyper-execute/SKILL.md"
+cmp -s "${SCRIPT_DIR}/opencode/skills/hyper-execute/references/mission-template.md" "${CONFIG_DIR}/skills/hyper-execute/references/mission-template.md"
+cmp -s "${SCRIPT_DIR}/opencode/skills/hyper-execute/references/verifier-prompts.md" "${CONFIG_DIR}/skills/hyper-execute/references/verifier-prompts.md"
+cmp -s "${SCRIPT_DIR}/opencode/skills/hyper-execute/references/opencode-runtime.md" "${CONFIG_DIR}/skills/hyper-execute/references/opencode-runtime.md"
+cmp -s "${SCRIPT_DIR}/opencode/commands/hyper-execute.md" "${CONFIG_DIR}/commands/hyper-execute.md"
 cmp -s "${SCRIPT_DIR}/opencode/commands/brainstorm.md" "${CONFIG_DIR}/commands/brainstorm.md"
 cmp -s "${SCRIPT_DIR}/opencode/commands/image-gen.md" "${CONFIG_DIR}/commands/image-gen.md"
 cmp -s "${SCRIPT_DIR}/opencode/commands/image-gen.sh" "${CONFIG_DIR}/commands/image-gen.sh"
@@ -489,12 +494,15 @@ jq -e '."[opencode]" | (.goal.enabled == false) and (.goal.auto_start == false)
     and .agents["apollo-analyzer"].displayName == "Apollo - Analyzer"
     and .agents.sisyphus.model == "litellm/test-model"
     and .agents.explore.model == "litellm/test-model"
-    and .categories.quick.model == "litellm/test-model"' "$omo_config" >/dev/null
+    and ([.categories.quick, .categories["deep-low"], .categories["deep-high"]]
+        | all(.[]; .model == "litellm/test-model"))' "$omo_config" >/dev/null
 jq '."[opencode]".goal.enabled = false | ."[opencode]".background_task.defaultConcurrency = 2
     | ."[opencode]".codegraph = {enabled: false, auto_provision: false, telemetry: false}
     | ."[opencode]".agents.sisyphus.model = "litellm/custom-main"
     | ."[opencode]".agents.sisyphus.temperature = 0.2
     | ."[opencode]".agents.custom = {model: "litellm/custom-role"}
+    | ."[opencode]".categories["deep-low"].variant = "medium"
+    | ."[opencode]".categories["deep-high"].variant = "high"
     | ."[opencode]".categories.custom = {model: "litellm/custom-category"}' \
     "$omo_config" > "${TEST_ROOT}/omo-custom"
 cp "${TEST_ROOT}/omo-custom" "$omo_config"
@@ -511,7 +519,7 @@ main_run --install --extension --all --omo-model "$switch_model"
 jq -e --arg model "$switch_model" --slurpfile before "${TEST_ROOT}/omo-before" '
     ."[opencode]" as $config
     | ($config.agents | del(.custom, ."apollo-analyzer") | length == 11)
-    and ($config.categories | del(.custom) | length == 8)
+    and ($config.categories | del(.custom) | length == 10)
     and ($config.agents | del(.custom, ."apollo-analyzer") | all(.[]; .model == $model))
     and ($config.categories | del(.custom) | all(.[]; .model == $model))
     and (del(."[opencode]".agents[].model, ."[opencode]".categories[].model)

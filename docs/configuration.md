@@ -105,7 +105,7 @@ Apollo - Analyzer's source is `.devcontainer/opencode/agents/apollo-analyzer.md`
 
 Setup disables the faulty Goal hook: OpenAgent 4.19.4 can interpret ordinary messages or expanded commands as objectives and reject them above 2000 characters. Reruns also change an existing `[opencode].goal.enabled` to `false`, backing up the previous JSON configuration. This is a compatibility workaround, not an upstream code fix; dedicated `/goal` continuation is unavailable until a corrected release is verified. Agent orchestration remains available. New configurations default to at most three background tasks. Team Mode defaults to enabled; existing explicit settings are preserved. Worktrees and tmux visualization are optional and are not enabled by this setup.
 
-The workspace does not impose any model. Optional `--omo-model litellm/<model-id>` (or `OMO_MODEL`) sets all built-in agent/category model assignments, replacing earlier assignments so rerunning setup can switch models. These model assignments also apply to Apollo - Analyzer, workspace-review, and native Build/Plan. Setup leaves existing variant and reasoning settings unchanged. Other role settings and custom roles remain intact. Omit a flag and its environment variable to preserve its existing assignments. Without configured assignments, OpenAgent model selection uses upstream defaults and may require providers you have not configured; selecting a model in the UI does not necessarily configure every subagent. Restart OpenCode after switching models. Edit individual assignments in `~/.omo/omo.json` under `[opencode].agents` and `[opencode].categories`.
+The workspace does not impose any model. Optional `--omo-model litellm/<model-id>` (or `OMO_MODEL`) sets all built-in agent/category model assignments, replacing earlier assignments so rerunning setup can switch models. This includes OpenAgent 5.1.x's `deep-low` and `deep-high` lanes; legacy `deep` is retained for older supported releases. These model assignments also apply to Apollo - Analyzer, workspace-review, and native Build/Plan. Setup leaves existing variant and reasoning settings unchanged. Other role settings and custom roles remain intact. Omit a flag and its environment variable to preserve its existing assignments. Without configured assignments, OpenAgent model selection uses upstream defaults and may require providers you have not configured; selecting a model in the UI does not necessarily configure every subagent. Restart OpenCode after switching models. Edit individual assignments in `~/.omo/omo.json` under `[opencode].agents` and `[opencode].categories`.
 
 The helper backs up changed `~/.omo/omo.json` files and preserves custom settings except for the Goal compatibility override and enforced telemetry opt-out. If `~/.omo/omo.jsonc` already exists, setup stops before installation/configuration changes: set `goal.enabled` to `false` manually inside its `[opencode]` object and manage that JSONC configuration manually. The duplicate built-in Context7 MCP is disabled in generated JSON; our existing Context7 option continues to control it. Local workspace-memory remains available.
 
@@ -209,6 +209,38 @@ at most three useful decision questions. The command never implements, writes
 files, or stress-tests ideas. Use `/hyper-analyze` for decision analysis and a
 planning workflow (`/ulw-plan` when available) for a chosen idea. Rerun the harness
 installer and restart OpenCode after changing the command file.
+
+Use `/hyper-execute <goal | mission-path | plan-path>` to drive one goal to
+evidence-verified completion. It first freezes a mission contract — acceptance
+criteria, each with an evidence command or observation procedure, scope-out,
+stop conditions, and a verification-round budget (3 by default) — in
+`.omo/missions/<slug>/mission.md` and presents it for approval. After that
+single gate (replacing duplicate plan approval) the run is continuous within its
+limits: it plans through the ulw-plan workflow, validates supplied plans and review
+provenance, executes through ulw-execute's worker waves with per-task reviews and capped
+fix loops, then runs independent verification rounds on fresh subagents that
+never see implementer reports (correctness, security for relevant behavior or
+infrastructure/configuration changes, and QA) against a pinned candidate. A clean
+round requires every criterion verified,
+all required verifier coverage complete, passing QA, and no open confirmed serious
+findings; high-stakes missions require two consecutive clean rounds on the same
+candidate. Required capabilities are checked before starting. Outcomes are verified,
+user-stopped, blocked, or budget-exhausted; every exit cancels mission-owned active
+and queued work and records recovery state. It reports the evidence table,
+deferred minors, and every ruling it made. Contract changes need explicit approval;
+existing authorization is respected. This is deliberately the most expensive
+command; starting or resuming requires the slash command. Ordinary messages may
+steer or stop an active run. Security rounds use a standalone verifier rather
+than loading the main-session-only `security-research` team skill; a full team audit
+is conditional additional coverage. High-stakes mode and required coverage are
+part of the approved contract, separate from mutable round/time/cost limits.
+Exit handling pauses mission-owned Boulder work and cancels its continuation todos,
+while retaining recovery state; successful verification marks that work completed.
+The runtime reference documents OpenCode session IDs and source snapshots that
+preserve contents, executable modes, symlinks, and pre-existing work without commits.
+For plan-only requests use `/ulw-plan`; for analysis use `/hyper-analyze`.
+Rerun the harness installer and restart OpenCode after changing the command
+or skill files.
 
 Use `/image-gen model=<image-model-id> <prompt>` to generate one image, or request
 an edit with a local reference PNG and optional mask. This is a command only;
