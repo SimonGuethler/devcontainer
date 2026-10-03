@@ -311,6 +311,7 @@ select a newer release. Rerunning setup with PDF enabled migrates the old worksp
 | `.devcontainer/devcontainer.json` | VS Code extensions, settings, and creation hooks (full variant) |
 | `.devcontainer/light/devcontainer.json` | VS Code entry for the light variant |
 | `.devcontainer/.zshrc` | Shell theme and plugins |
+| `.devcontainer/.tmux.conf` | tmux settings, including truecolor passthrough |
 | `.devcontainer/setup-zsh.sh` | Shell setup and configuration sync |
 | `.devcontainer/setup-opencode.sh` | OpenCode installation and LiteLLM configuration |
 | `.devcontainer/setup-opencode-harness.sh` | Local agent, skills, and LSP/Context7 configuration |

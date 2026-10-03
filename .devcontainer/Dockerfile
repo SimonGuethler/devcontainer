@@ -130,8 +130,9 @@ ENV LANG=C.UTF-8 \
 
 # Install the Zsh configuration in the image. postCreateCommand also syncs it
 # from the mounted workspace.
-COPY setup-zsh.sh .zshrc /tmp/zsh-setup/
-RUN ZSHRC_SOURCE=/tmp/zsh-setup/.zshrc sh /tmp/zsh-setup/setup-zsh.sh \
+COPY setup-zsh.sh .zshrc .tmux.conf /tmp/zsh-setup/
+RUN ZSHRC_SOURCE=/tmp/zsh-setup/.zshrc TMUX_SOURCE=/tmp/zsh-setup/.tmux.conf \
+    sh /tmp/zsh-setup/setup-zsh.sh \
     && rm -rf /tmp/zsh-setup
 
 WORKDIR /workspace

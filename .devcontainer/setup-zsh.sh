@@ -78,6 +78,22 @@ if ! cmp -s "$ZSHRC_TEMP" "$HOME/.zshrc"; then
     mv -f "$ZSHRC_TEMP" "$HOME/.zshrc"
 fi
 
+# Sync the repository's tmux configuration. tmux reads ~/.tmux.conf when the
+# server starts; a running server picks up changes with `tmux source-file`.
+# Optional: skipped when the source file is absent so the script still works
+# outside the repository.
+TMUX_SOURCE="${TMUX_SOURCE:-/workspace/.devcontainer/.tmux.conf}"
+if [ -f "$TMUX_SOURCE" ]; then
+    if ! cmp -s "$TMUX_SOURCE" "$HOME/.tmux.conf"; then
+        if [ -f "$HOME/.tmux.conf" ]; then
+            TMUX_BACKUP="$(mktemp "$HOME/.tmux.conf.backup.XXXXXX")"
+            cat "$HOME/.tmux.conf" > "$TMUX_BACKUP"
+            echo "==> Previous tmux configuration saved to ${TMUX_BACKUP}"
+        fi
+        cp "$TMUX_SOURCE" "$HOME/.tmux.conf"
+    fi
+fi
+
 # chsh fails as root in containers because of PAM; usermod updates /etc/passwd
 # directly and works reliably here.
 USER_SHELL="$(command -v zsh)"

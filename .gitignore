@@ -3,6 +3,7 @@
 *
 !.devcontainer/
 !.devcontainer/.zshrc
+!.devcontainer/.tmux.conf
 !.devcontainer/AGENTS.md
 !.devcontainer/Dockerfile
 !.devcontainer/compose.yml
