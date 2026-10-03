@@ -11,13 +11,15 @@ $ARGUMENTS
 
    ```
    /video-analysis <url> [@file.txt] [--out DIR] [--frames N] [--lang auto]
-                   [--lang-report Deutsch] [--asr local|proxy] [--no-video]
-                   [--keep-audio] [--diarize] [--whisper-model large-v2]
+                   [--lang-report Deutsch] [--report-effort max] [--asr local|proxy]
+                   [--no-video] [--keep-audio] [--diarize] [--whisper-model large-v2]
                    [--max-playlist 50]
    ```
 
    Defaults: output to `video-analysis/` in the current project, 1 fps frames
-   (capped at 120 per video), report language Deutsch, local WhisperX with
+   (capped at 120 per video), report language Deutsch, report effort `max`
+   (highest detail; `--report-effort low` or `high` cut synthesis time ~4x
+   with slightly less depth — useful for large batches), local WhisperX with
    `large-v2`. `--diarize` needs an HF token for gated Pyannote models and
    fails without one; mention this when the user asks for diarization.
 2. Run the setup script first if the tool environment is missing (no
@@ -41,7 +43,8 @@ $ARGUMENTS
    ```
 
    Pass through the user's flags (`--no-video`, `--asr proxy`, `--keep-audio`,
-   `--frames`, `--lang`, `--lang-report`, `--whisper-model`, `--max-playlist`).
+   `--frames`, `--lang`, `--lang-report`, `--report-effort`, `--whisper-model`,
+   `--max-playlist`).
    If YouTube blocks the download (bot detection), retry once after
    `uv pip install --upgrade yt-dlp --python
    "$HOME/.config/opencode/tools/video-analysis/.venv/bin/python"`, then

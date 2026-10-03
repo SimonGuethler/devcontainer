@@ -26,8 +26,10 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
@@ -77,8 +79,9 @@ MODELS_DIR = Path.home() / ".config/opencode/tools/video-analysis/models"
 
 MAX_PLAYLIST = 50
 FRAME_CAP = 120
-VISION_BATCH_MIN = 6
-VISION_BATCH_MAX = 8
+VISION_BATCH_MIN = 12
+VISION_BATCH_MAX = 16
+VISION_WORKERS = 8
 VISION_IMAGE_MAX_BYTES = 3_000_000
 MAX_TRANSCRIPT_CHARS = 400_000
 
@@ -124,12 +127,15 @@ def chat_completion(
     base_url: str,
     timeout: int,
     max_tokens: int,
+    transport_retries: int = 2,
+    reasoning_effort: str | None = None,
 ) -> str:
-    # The proxy model is a reasoning model: reasoning_content tokens count
-    # against max_tokens, and exhausted budgets yield finish_reason=length
-    # with empty content. Retry once with a doubled budget before failing.
     body = {"model": MODEL_ID, "messages": messages, "max_tokens": max_tokens}
-    for attempt in range(2):
+    if reasoning_effort:
+        body["reasoning_effort"] = reasoning_effort
+    transport_attempts = transport_retries + 1
+    budget_retried = False
+    for attempt in range(max(transport_attempts, 2)):
         request = urllib.request.Request(
             f"{base_url}/chat/completions",
             data=json.dumps(body).encode("utf-8"),
@@ -146,6 +152,11 @@ def chat_completion(
             detail = exc.read().decode("utf-8", errors="replace")[:500]
             raise PipelineError(f"Chat endpoint HTTP {exc.code}: {detail}") from exc
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            if attempt + 1 < transport_attempts:
+                delay = 1.5 * (attempt + 1)
+                log(f"  chat: transport error ({exc}); retrying in {delay:.1f}s")
+                time.sleep(delay)
+                continue
             raise PipelineError(f"Chat endpoint unreachable: {exc}") from exc
         try:
             message = data["choices"][0]["message"]
@@ -154,7 +165,8 @@ def chat_completion(
             raise PipelineError(f"Unexpected chat response shape: {exc}") from exc
         if isinstance(content, str) and content.strip():
             return content
-        if attempt == 0:
+        if not budget_retried:
+            budget_retried = True
             body["max_tokens"] = min(max_tokens * 4, 100_000)
             log(f"  chat: empty content (reasoning exhausted budget); retrying with {body['max_tokens']} tokens")
             continue
@@ -267,9 +279,29 @@ def run_ytdlp(url: str, out_dir: Path, audio_only: bool, yt_dlp: Path) -> dict:
         env={**os.environ, "LC_ALL": "C.UTF-8"},
     )
     if proc.returncode != 0:
-        raise PipelineError(
-            (proc.stderr or proc.stdout or "unknown yt-dlp error").strip().splitlines()[-1][:300]
-        )
+        error_text = (proc.stderr or proc.stdout or "unknown yt-dlp error").strip()
+        # YouTube rate-limits subtitle downloads (HTTP 429); captions are only
+        # fallback material, so retry once without them instead of failing.
+        if "Unable to download video subtitles" in error_text:
+            log("  yt-dlp: subtitle download failed (rate limit); retrying without subtitles")
+            no_subs: list[str] = []
+            i = 0
+            while i < len(cmd):
+                flag = cmd[i]
+                if flag == "--write-auto-subs":
+                    i += 3
+                    continue
+                no_subs.append(flag)
+                i += 1
+            proc = subprocess.run(
+                no_subs, capture_output=True, text=True, timeout=YTDLP_TIMEOUT,
+                env={**os.environ, "LC_ALL": "C.UTF-8"},
+            )
+            if proc.returncode != 0:
+                error_text = (proc.stderr or proc.stdout or "unknown yt-dlp error").strip()
+                raise PipelineError(error_text.splitlines()[-1][:300])
+        else:
+            raise PipelineError(error_text.splitlines()[-1][:300])
     json_files = sorted(out_dir.glob("*.info.json"), key=lambda p: p.stat().st_mtime)
     if not json_files:
         raise PipelineError("yt-dlp wrote no .info.json file.")
@@ -359,13 +391,22 @@ def extract_audio(video_path: Path, audio_path: Path) -> None:
 
 
 def run_whisperx(
-    media_path: Path,
+    media_paths: list[Path],
     out_dir: Path,
     model: str,
     language: str,
     diarize: bool,
     whisperx_bin: Path,
-) -> Path:
+) -> dict[str, Path]:
+    """Transcribe one or more media files in a single WhisperX invocation.
+
+    The CLI loads the whisper model once for all inputs and the alignment
+    model once per language (verified: whisperx/transcribe.py loops over
+    args["audio"] between the two load calls), so N videos cost one model
+    load instead of N. Outputs are written to out_dir named after each
+    input stem; returns a mapping input stem -> json path.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
     cmd = [
         str(whisperx_bin),
         "--model", model,
@@ -379,8 +420,9 @@ def run_whisperx(
         cmd += ["--language", language]
     if diarize:
         cmd += ["--diarize"]
-    cmd.append(str(media_path))
-    log(f"  whisperx: transcribing + aligning ({model}, silero, float16)")
+    cmd.extend(str(p) for p in media_paths)
+    n = len(media_paths)
+    log(f"  whisperx: transcribing + aligning {n} file(s) ({model}, silero, float16)")
     proc = subprocess.run(
         cmd, capture_output=True, text=True, timeout=ASR_TIMEOUT,
         env={**os.environ, "HF_HUB_DISABLE_TELEMETRY": "1"},
@@ -389,13 +431,13 @@ def run_whisperx(
         raise PipelineError(
             (proc.stderr or proc.stdout or "unknown whisperx error").strip().splitlines()[-1][:400]
         )
-    json_out = [
-        p for p in out_dir.glob("*.json")
-        if p.name != MANIFEST_NAME and p.name != "transcript.json"
-    ]
-    if not json_out:
-        raise PipelineError("WhisperX produced no JSON output.")
-    return max(json_out, key=lambda p: p.stat().st_mtime)
+    mapping: dict[str, Path] = {}
+    for media in media_paths:
+        expected = out_dir / f"{media.stem}.json"
+        if not expected.exists():
+            raise PipelineError(f"WhisperX produced no JSON output for {media.name}")
+        mapping[media.stem] = expected
+    return mapping
 
 
 def normalize_transcript(whisperx_json_path: Path, out_dir: Path) -> dict:
@@ -426,16 +468,19 @@ def normalize_transcript(whisperx_json_path: Path, out_dir: Path) -> dict:
 def normalize_folder(folder: Path) -> None:
     """Bring the folder to the plan layout: poster.jpg + no raw WhisperX/
     yt-dlp sibling files. Runs for both ASR paths (local and proxy)."""
+    canonical = {
+        "metadata.json", MANIFEST_NAME, "transcript.json", "transcript.txt",
+        "transcript.srt", "scenes.json", "report.md", "video.mp4", "poster.jpg",
+        "audio.wav", "captions.vtt", FRAMES_DIR_NAME,
+    }
     for thumbnail in list(folder.glob("*.jpg")) + list(folder.glob("*.webp")):
         if thumbnail.name != "poster.jpg":
             thumbnail.rename(folder / "poster.jpg")
             break
-    for sibling in list(folder.glob("*.tsv")) + list(folder.glob("*.vtt")):
-        if sibling.name != "captions.vtt" and sibling.name != "transcript.srt":
-            sibling.unlink()
-    for raw_json in list(folder.glob("*.json")):
-        if raw_json.name not in ("metadata.json", MANIFEST_NAME, "transcript.json", "scenes.json"):
-            raw_json.unlink()
+    for sibling in folder.iterdir():
+        if sibling.name in canonical or sibling.is_dir():
+            continue
+        sibling.unlink()
 
 
 def write_transcript_files(transcript: dict, out_dir: Path) -> None:
@@ -503,36 +548,49 @@ Answer as a compact list, one entry per frame, prefixed with its second (e.g. "s
 
 
 def analyze_frames(frames: list[Path], api_key: str, base_url: str) -> list[dict]:
-    notes: list[dict] = []
+    batches: list[list[Path]] = []
     for batch_start in range(0, len(frames), VISION_BATCH_MAX):
         batch = frames[batch_start:batch_start + VISION_BATCH_MAX]
         if len(batch) < VISION_BATCH_MIN and batch_start > 0:
             need = VISION_BATCH_MIN - len(batch)
             batch = frames[batch_start - need:batch_start + len(batch)]
+        batches.append(batch)
+
+    def frame_second(frame: Path) -> int:
+        m = re.fullmatch(r"frame-(\d{6})\.jpg", frame.name)
+        return int(m.group(1)) if m else 0
+
+    def describe_batch(batch: list[Path]) -> dict:
         content: list[dict] = []
-        frame_seconds: list[int] = []
         for frame in batch:
-            m = re.fullmatch(r"frame-(\d{6})\.jpg", frame.name)
-            second = int(m.group(1)) if m else 0
-            frame_seconds.append(second)
+            second = frame_second(frame)
             content.append({"type": "text", "text": f"Frame at second {second}:"})
             content.append({"type": "image_url", "image_url": {"url": encode_image(frame)}})
         content.append({"type": "text", "text": VISION_PROMPT})
-        answer = chat_completion(
-            [{"role": "user", "content": content}],
-            api_key, base_url, timeout=VISION_TIMEOUT, max_tokens=2000,
-        )
-        second_range = f"{frame_seconds[0]}-{frame_seconds[-1]}"
-        notes.append(
-            {
+        second_range = f"{frame_second(batch[0])}-{frame_second(batch[-1])}"
+        try:
+            answer = chat_completion(
+                [{"role": "user", "content": content}],
+                api_key, base_url, timeout=VISION_TIMEOUT, max_tokens=2000,
+            )
+        except PipelineError as exc:
+            log(f"  vision: batch {second_range}s FAILED after retries: {str(exc)[:120]}")
+            return {
                 "batch_seconds": second_range,
-                "frames": [
-                    {"second": s, "file": f.name} for s, f in zip(frame_seconds, batch)
-                ],
-                "notes": answer.strip(),
+                "frames": [{"second": frame_second(f), "file": f.name} for f in batch],
+                "notes": None,
+                "error": str(exc)[:300],
             }
-        )
         log(f"  vision: batch {second_range}s done ({len(batch)} frames)")
+        return {
+            "batch_seconds": second_range,
+            "frames": [{"second": frame_second(f), "file": f.name} for f in batch],
+            "notes": answer.strip(),
+        }
+
+    notes: list[dict] = []
+    with ThreadPoolExecutor(max_workers=VISION_WORKERS) as pool:
+        notes = list(pool.map(describe_batch, batches))
     return notes
 
 
@@ -604,16 +662,16 @@ Erstelle den Report exakt nach dieser Struktur:
 (5–7 Stichpunkte, je eine Zeile als Markdown-Liste)
 
 ## Inhalt
-(Abschnitte entlang der Kapitel oder Themenblöcke; wenn keine Kapitel existieren, bilde thematische Blöcke über je ~5 Minuten; jede Aussage mit [mm:ss]-Timestamps aus dem Transkript belegen)
+(Abschnitte entlang der Kapitel oder Themenblöcke; wenn keine Kapitel existieren, bilde thematische Blöcke über je ~5 Minuten; jede Aussage mit [mm:ss]-Timestamps aus dem Transkript belegen; im Zweifel MEHR Timestamps als weniger — jede Aussage soll einzeln prüfbar sein)
 
 ## Kernargumente
 (3–6 Bullets mit dem substanziellsten Inhalt)
 
 ## Visuelles
-(Slides/Demos/Diagramme aus den Frame-Notizen, mit Timestamps [mm:ss]; ohne visuelle Notizen schreib „(nicht verfügbar)")
+(Slides/Demos/Diagramme aus den Frame-Notizen, mit Timestamps [mm:ss]; jedes visuelle Element bekommt einen eigenen Listenpunkt — keine Sammelzusammenfassung; ohne visuelle Notizen schreib „(nicht verfügbar)")
 
 ## Markante Zitate
-(2–3 wörtliche Zitate aus dem Transkript, jeweils mit [mm:ss])
+(Exakt 3 wörtliche Zitate: kopiere die Sätze 1:1 aus dem Transkript, inklusive Füllwörter — keine Paraphrase, keine Kürzung; jeweils mit [mm:ss])
 
 ## Themen/Tags
 (5–8 kurze Tags als Liste)
@@ -621,7 +679,7 @@ Erstelle den Report exakt nach dieser Struktur:
 ## Erwähnte Ressourcen
 (Links, Paper, Tools, Bücher aus Transkript/Visuellem; sonst „(keine)")
 
-Regeln: Antworte auf {lang}. Verwende nur Informationen aus den Quellen; erfinde nichts. Timestamps müssen aus dem Transkript oder den Frame-Notizen stammen."""
+Regeln: Antworte auf {lang}. Verwende nur Informationen aus den Quellen; erfinde nichts. Timestamps müssen aus dem Transkript oder den Frame-Notizen stammen. Wenn das Transkript mehrere Zeitangaben oder eine Reihenfolge von Ereignissen nennt, gib die Chronologie exakt wieder — keine zusammengefassten Zeitangaben."""
 
 
 def sanitize_cell(text: str) -> str:
@@ -691,6 +749,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--frames", type=float, default=1.0, help="Frames per second (default 1, cap 120)")
     parser.add_argument("--lang", default="auto", help="Audio language hint for WhisperX (default: auto)")
     parser.add_argument("--lang-report", default="Deutsch", help="Report language (default: Deutsch)")
+    parser.add_argument(
+        "--report-effort",
+        choices=["low", "high", "max"],
+        default="max",
+        help="Reasoning effort for the synthesis call (default: max; low/high are ~4x faster with slightly less detail)",
+    )
     parser.add_argument(
         "--asr", choices=["local", "proxy"], default="local",
         help="ASR backend: local WhisperX (default) or proxy whisper-large-v3",
@@ -787,15 +851,12 @@ def whisperx_bin_path() -> Path:
     return VENV_DIR / "bin/whisperx"
 
 
-def process_video(
+def prepare_video(
     args: argparse.Namespace,
     url: str,
     video_id: str,
     out_dir: Path,
-    api_key: str,
-    base_url: str,
-    index_path: Path,
-) -> Path:
+) -> tuple[Path, dict]:
     folder = find_existing_folder(out_dir, video_id)
     if folder is None:
         info = probe_metadata(url, yt_dlp_path())
@@ -807,32 +868,26 @@ def process_video(
     manifest.setdefault("state_order", STATE_ORDER)
     state = manifest.get("state", "queued")
     manifest["previous_state"] = state
+    return folder, manifest
 
-    try:
-        folder = run_steps(args, url, video_id, folder, manifest, api_key, base_url)
-    except PipelineError as exc:
-        failed_state = STATE_ORDER.index(manifest["state"]) if manifest.get("state") in STATE_ORDER else 0
-        previous_state = STATE_ORDER.index(manifest["previous_state"]) if manifest.get("previous_state") in STATE_ORDER else 0
-        if failed_state < previous_state:
-            manifest["state"] = manifest["previous_state"]
-        save_manifest(folder, manifest)
-        metadata = read_metadata(folder)
-        write_index_entry(
-            index_path, video_id,
-            metadata.get("title") or url,
-            metadata.get("channel", ""),
-            metadata.get("duration") or 0,
-            metadata.get("upload_date", ""),
-            folder.name, "failed", str(exc),
-        )
-        raise
+
+def record_failure(
+    index_path: Path, video_id: str, folder: Path, manifest: dict
+) -> None:
+    failed_state = STATE_ORDER.index(manifest["state"]) if manifest.get("state") in STATE_ORDER else 0
+    previous_state = STATE_ORDER.index(manifest["previous_state"]) if manifest.get("previous_state") in STATE_ORDER else 0
+    if failed_state < previous_state:
+        manifest["state"] = manifest["previous_state"]
+    save_manifest(folder, manifest)
     metadata = read_metadata(folder)
     write_index_entry(
-        index_path, video_id, metadata.get("title", ""), metadata.get("channel", ""),
-        metadata.get("duration") or 0, metadata.get("upload_date", ""),
-        folder.name, "reported",
+        index_path, video_id,
+        metadata.get("title") or manifest.get("url", ""),
+        metadata.get("channel", ""),
+        metadata.get("duration") or 0,
+        metadata.get("upload_date", ""),
+        folder.name, "failed",
     )
-    return folder
 
 
 def read_metadata(folder: Path) -> dict:
@@ -845,73 +900,160 @@ def read_metadata(folder: Path) -> dict:
         return {}
 
 
-def run_steps(
+def ensure_downloaded(
     args: argparse.Namespace,
     url: str,
     video_id: str,
     folder: Path,
     manifest: dict,
-    api_key: str,
-    base_url: str,
-) -> Path:
+) -> None:
     state = manifest.get("state", "queued")
     info_path = folder / "metadata.json"
+    if state != "queued" and info_path.exists():
+        return
+    log(f"  download: yt-dlp into {folder.name}")
+    info = run_ytdlp(url, folder, args.no_video, yt_dlp_path())
+    wanted_keys = [
+        "id", "title", "channel", "upload_date", "duration", "view_count",
+        "webpage_url", "description", "chapters", "categories", "tags",
+    ]
+    metadata = {k: info.get(k) for k in wanted_keys}
+    info_path.write_text(
+        json.dumps(metadata, ensure_ascii=False, indent=1), encoding="utf-8"
+    )
+    for stale in folder.glob("*.info.json"):
+        stale.unlink()
+    rename_media_files(folder, video_id, args.no_video)
+    manifest["state"] = "downloaded"
+    manifest["downloaded_at"] = datetime.now().isoformat(timespec="seconds")
+    save_manifest(folder, manifest)
 
-    if state == "queued" or not info_path.exists():
-        log(f"  download: yt-dlp into {folder.name}")
-        info = run_ytdlp(url, folder, args.no_video, yt_dlp_path())
-        wanted_keys = [
-            "id", "title", "channel", "upload_date", "duration", "view_count",
-            "webpage_url", "description", "chapters", "categories", "tags",
-        ]
-        metadata = {k: info.get(k) for k in wanted_keys}
-        info_path.write_text(
-            json.dumps(metadata, ensure_ascii=False, indent=1), encoding="utf-8"
+
+def finish_transcription(
+    args: argparse.Namespace,
+    video_id: str,
+    folder: Path,
+    manifest: dict,
+    api_key: str,
+    base_url: str,
+) -> None:
+    """Transcribe ONE video (already downloaded). Used for single-video runs,
+    proxy ASR, and as fallback when the batched resident run fails."""
+    state = manifest.get("state", "queued")
+    if state in ("transcribed", "analyzed", "reported"):
+        return
+    media = find_media_file(folder, video_id, args.no_video)
+    if media is None:
+        raise PipelineError("no media file found after download")
+    canonical = folder / ("audio.wav" if args.no_video else "video.mp4")
+    if media != canonical:
+        media.rename(canonical)
+    try:
+        if args.asr == "local":
+            mapping = run_whisperx(
+                [canonical], folder, args.whisper_model, args.lang, args.diarize,
+                whisperx_bin_path(),
+            )
+            normalize_transcript(mapping[canonical.stem], folder)
+        else:
+            segments = whisper_proxy_transcribe(canonical, api_key, base_url)
+            write_transcript_files({"language": None, "segments": segments}, folder)
+    except PipelineError:
+        captions = promote_captions(folder)
+        if captions is None:
+            raise
+        log(f"  asr failed; using YouTube autocaptions as fallback: {captions.name}")
+        segments = parse_vtt(captions)
+        if not segments:
+            raise
+        write_transcript_files({"language": None, "segments": segments}, folder)
+        manifest["asr_fallback"] = "captions"
+    if args.no_video and not args.keep_audio:
+        (folder / "audio.wav").unlink(missing_ok=True)
+    normalize_folder(folder)
+    manifest["state"] = "transcribed"
+    save_manifest(folder, manifest)
+
+
+def transcribe_batch(
+    jobs: list[tuple[str, Path, dict]],
+    args: argparse.Namespace,
+    api_key: str,
+    base_url: str,
+    index_path: Path,
+) -> list[str]:
+    """Transcribe all pending videos with ONE WhisperX invocation (local ASR):
+    one whisper-model load for the whole batch instead of one per video.
+    Returns video_ids whose transcription failed (isolated, batch continues)."""
+    failed: list[str] = []
+    if not jobs:
+        return failed
+    if args.asr != "local":
+        for video_id, folder, manifest in jobs:
+            try:
+                finish_transcription(args, video_id, folder, manifest, api_key, base_url)
+            except PipelineError:
+                failed.append(video_id)
+        return failed
+    staging = jobs[0][1].parent / "_transcribe-staging"
+    staging.mkdir(parents=True, exist_ok=True)
+    try:
+        links: list[Path] = []
+        for video_id, folder, _ in jobs:
+            media = find_media_file(folder, video_id, args.no_video)
+            if media is None:
+                log(f"  whisperx: no media for {video_id}; deferring to fallback")
+                failed.append(video_id)
+                continue
+            canonical = folder / ("audio.wav" if args.no_video else "video.mp4")
+            if media != canonical:
+                media.rename(canonical)
+            link = staging / f"{video_id}{canonical.suffix}"
+            if link.exists():
+                link.unlink()
+            os.link(canonical, link)
+            links.append(link)
+        mapping = run_whisperx(
+            links, staging, args.whisper_model, args.lang, args.diarize,
+            whisperx_bin_path(),
         )
-        for stale in folder.glob("*.info.json"):
-            stale.unlink()
-        rename_media_files(folder, video_id, args.no_video)
-        manifest["state"] = "downloaded"
-        manifest["downloaded_at"] = datetime.now().isoformat(timespec="seconds")
-        save_manifest(folder, manifest)
-        state = "downloaded"
+        for video_id, folder, manifest in jobs:
+            if video_id in failed:
+                continue
+            try:
+                normalize_transcript(mapping[video_id], folder)
+                if args.no_video and not args.keep_audio:
+                    (folder / "audio.wav").unlink(missing_ok=True)
+                normalize_folder(folder)
+                manifest["state"] = "transcribed"
+                save_manifest(folder, manifest)
+            except (PipelineError, KeyError) as exc:
+                log(f"  transcription output unusable for {video_id}: {str(exc)[:100]}")
+                failed.append(video_id)
+    except PipelineError:
+        shutil.rmtree(staging, ignore_errors=True)
+        return [vid for vid, _, _ in jobs]
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+    return failed
 
+
+def finish_video(
+    args: argparse.Namespace,
+    video_id: str,
+    folder: Path,
+    manifest: dict,
+    api_key: str,
+    base_url: str,
+    index_path: Path,
+) -> None:
+    state = manifest.get("state", "queued")
     metadata = read_metadata(folder)
 
     transcript_json = folder / "transcript.json"
-    if state not in ("transcribed", "analyzed", "reported"):
-        media = find_media_file(folder, video_id, args.no_video)
-        if media is None:
-            raise PipelineError("no media file found after download")
-        try:
-            if args.asr == "local":
-                whisperx_json = run_whisperx(
-                    media, folder, args.whisper_model, args.lang, args.diarize,
-                    whisperx_bin_path(),
-                )
-                normalize_transcript(whisperx_json, folder)
-            else:
-                segments = whisper_proxy_transcribe(media, api_key, base_url)
-                write_transcript_files({"language": None, "segments": segments}, folder)
-        except PipelineError:
-            captions = promote_captions(folder)
-            if captions is None:
-                raise
-            log(f"  asr failed; using YouTube autocaptions as fallback: {captions.name}")
-            segments = parse_vtt(captions)
-            if not segments:
-                raise
-            write_transcript_files({"language": None, "segments": segments}, folder)
-            manifest["asr_fallback"] = "captions"
-        if args.keep_audio and args.no_video:
-            media.rename(folder / "audio.wav")
-        elif args.no_video and not (folder / "audio.wav").exists():
-            media.unlink()
-        normalize_folder(folder)
-        manifest["state"] = "transcribed"
-        save_manifest(folder, manifest)
-        state = "transcribed"
-
+    if not transcript_json.exists() and state in ("queued", "downloaded"):
+        finish_transcription(args, video_id, folder, manifest, api_key, base_url)
+        state = manifest.get("state", "transcribed")
     scenes_path = folder / "scenes.json"
     if not args.no_video and state not in ("analyzed", "reported"):
         frames_dir = folder / FRAMES_DIR_NAME
@@ -950,10 +1092,11 @@ def run_steps(
         if scenes_path.exists():
             scenes = json.loads(scenes_path.read_text(encoding="utf-8"))
         prompt = build_synthesis_prompt(metadata, transcript, scenes, args.lang_report)
-        log("  synthesis: calling model for report")
+        log(f"  synthesis: calling model for report (reasoning_effort={args.report_effort})")
         report_text = chat_completion(
             [{"role": "user", "content": prompt}],
             api_key, base_url, timeout=SYNTHESIS_TIMEOUT, max_tokens=24000,
+            reasoning_effort=args.report_effort,
         )
         report_text = re.sub(r"^\s*```(?:markdown)?\s*\n", "", report_text.strip())
         report_text = re.sub(r"\n```\s*$", "", report_text)
@@ -961,7 +1104,6 @@ def run_steps(
         manifest["state"] = "reported"
         save_manifest(folder, manifest)
         log(f"  report: {report_path}")
-    return folder
 
 
 def promote_captions(folder: Path) -> Path | None:
@@ -1019,29 +1161,86 @@ def main() -> int:
 
     api_key, base_url = read_config()
     exit_code = 0
+
+    def fail_url(video_id: str | None, url: str, message: str) -> None:
+        nonlocal exit_code
+        log(f"ERROR: [{video_id or '?'}] {message}")
+        write_index_entry(
+            index_path, video_id or url, url, "", 0, "", "-", "failed", message
+        )
+        exit_code = 1
+
+    # Phase 1: resolve folders and download all videos (sequential, yt-dlp).
+    pending_transcribe: list[tuple[str, Path, dict]] = []
+    finished: set[str] = set()
     for url in expanded:
         video_id = lenient_video_id(url)
         try:
             if video_id is None:
                 raise PipelineError(f"Cannot extract video id from URL: {url}")
             log(f"Video {video_id}: starting")
-            folder = process_video(args, url, video_id, out_dir, api_key, base_url, index_path)
+            folder, manifest = prepare_video(args, url, video_id, out_dir)
+            try:
+                ensure_downloaded(args, url, video_id, folder, manifest)
+            except PipelineError as exc:
+                manifest["error"] = str(exc)[:300]
+                record_failure(index_path, video_id, folder, manifest)
+                fail_url(video_id, url, str(exc))
+                continue
+            state = manifest.get("state", "queued")
+            if state in ("transcribed", "analyzed", "reported") or (folder / "transcript.json").exists():
+                finished.add(video_id)
+            else:
+                pending_transcribe.append((video_id, folder, manifest))
+        except PipelineError as exc:
+            fail_url(video_id or "", url, str(exc))
+        except subprocess.TimeoutExpired as exc:
+            fail_url(video_id or "", url, f"timeout: {exc}")
+
+    # Phase 2: transcribe all pending videos with one WhisperX invocation
+    # (model loads once for the whole batch instead of once per video).
+    if pending_transcribe:
+        if len(pending_transcribe) > 1 and args.asr == "local":
+            log(f"Transcribing {len(pending_transcribe)} video(s) in one batched run")
+            failed_ids = transcribe_batch(pending_transcribe, args, api_key, base_url, index_path)
+        else:
+            failed_ids = []
+            for video_id, folder, manifest in pending_transcribe:
+                try:
+                    finish_transcription(args, video_id, folder, manifest, api_key, base_url)
+                except PipelineError as exc:
+                    manifest["error"] = str(exc)[:300]
+                    record_failure(index_path, video_id, folder, manifest)
+                    failed_ids.append(video_id)
+                    fail_url(video_id, manifest.get("url", ""), str(exc))
+        for video_id, folder, manifest in pending_transcribe:
+            if video_id in failed_ids:
+                fail_url(video_id, manifest.get("url", ""), "transcription failed")
+            else:
+                finished.add(video_id)
+
+    # Phase 3: vision + synthesis + index per finished video.
+    for url in expanded:
+        video_id = lenient_video_id(url)
+        if video_id is None or video_id not in finished:
+            continue
+        try:
+            folder, manifest = prepare_video(args, url, video_id, out_dir)
+            if manifest.get("state") == "reported" and (folder / "report.md").exists():
+                log(f"Video {video_id}: already done -> {folder.name}")
+                continue
+            finish_video(args, video_id, folder, manifest, api_key, base_url, index_path)
+            metadata = read_metadata(folder)
+            write_index_entry(
+                index_path, video_id, metadata.get("title", ""), metadata.get("channel", ""),
+                metadata.get("duration") or 0, metadata.get("upload_date", ""),
+                folder.name, "reported",
+            )
             log(f"Video {video_id}: done -> {folder.name}")
         except PipelineError as exc:
-            message = str(exc)
-            if message.startswith("ERROR: "):
-                message = message[len("ERROR: "):]
-            log(f"ERROR: [{video_id or '?'}] {message}")
-            write_index_entry(
-                index_path, video_id or url, url, "", 0, "", "-", "failed", message
-            )
-            exit_code = 1
+            fail_url(video_id, url, str(exc))
         except subprocess.TimeoutExpired as exc:
-            log(f"ERROR: [{video_id or '?'}] timeout: {exc}")
-            write_index_entry(
-                index_path, video_id or url, url, "", 0, "", "-", "failed", f"timeout: {exc}"
-            )
-            exit_code = 1
+            fail_url(video_id, url, f"timeout: {exc}")
     return exit_code
 
 

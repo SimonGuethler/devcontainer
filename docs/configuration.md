@@ -257,13 +257,16 @@ responses, other formats, multiple outputs, JSONC, and provider-specific extras
 are unsupported. Failed requests are not retried automatically.
 
 Use `/video-analysis <url|@file.txt> [--out DIR] [--asr local|proxy] [--no-video]
-[--keep-audio] [--frames N] [--lang auto] [--lang-report Deutsch] [--diarize]
-[--whisper-model large-v2]` to analyze one or more YouTube videos: the command
+[--keep-audio] [--frames N] [--lang auto] [--lang-report Deutsch] [--report-effort low|high|max]
+[--diarize] [--whisper-model large-v2]` to analyze one or more YouTube videos: the command
 downloads each video (≤720p mp4), transcribes locally with WhisperX (Silero VAD,
 float16, word-level alignment; `--asr proxy` uses the proxy whisper endpoint as
 fallback), extracts capped 1 fps frames, describes them with the multimodal chat
 model, and writes a German markdown report plus `_index.md` per batch into
-`video-analysis/` in the current project. Re-runs skip completed steps. The
+`video-analysis/` in the current project. Re-runs skip completed steps; batch
+runs load the Whisper model once for all videos. `--report-effort` tunes the
+synthesis call's reasoning (`max` default, most detail; `low`/`high` are ~4×
+faster with slightly less depth). The
 first run after a container rebuild needs `video-analysis-setup.sh` (also run
 automatically by the command) and downloads ffmpeg, a Python 3.12 venv with
 yt-dlp and WhisperX 3.8.6, and ~3 GB of Whisper model weights; diarization
