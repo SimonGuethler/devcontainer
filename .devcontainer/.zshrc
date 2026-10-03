@@ -7,8 +7,10 @@ ZSH_THEME="robbyrussell"
 # Plugins
 plugins=(
   git
+  git-lfs
   z
   fzf
+  tmux
   extract
   copypath
   sudo
