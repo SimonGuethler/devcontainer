@@ -6,7 +6,10 @@
 !.devcontainer/AGENTS.md
 !.devcontainer/Dockerfile
 !.devcontainer/compose.yml
+!.devcontainer/compose.light.yml
 !.devcontainer/devcontainer.json
+!.devcontainer/light/
+!.devcontainer/light/devcontainer.json
 !.devcontainer/setup-opencode.sh
 !.devcontainer/setup-openagent.sh
 !.devcontainer/setup-zsh.sh

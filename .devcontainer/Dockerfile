@@ -1,6 +1,10 @@
 # syntax=docker/dockerfile:1
 
-FROM nvidia/cuda:13.3.1-cudnn-devel-ubuntu26.04
+# Heavy default: full CUDA development image. The light variant overrides this
+# with ubuntu:26.04 (see compose.light.yml); both use the tool setup below.
+ARG BASE_IMAGE=nvidia/cuda:13.3.1-cudnn-devel-ubuntu26.04
+
+FROM ${BASE_IMAGE} AS tools
 
 # Disable supported telemetry during image builds and in all container processes.
 ENV DO_NOT_TRACK=1 \
@@ -45,8 +49,10 @@ RUN apt-get update \
         tree \
         unzip \
         wget \
+        xz-utils \
         zip \
         zsh \
+        zstd \
     && git lfs install --system \
     && ln -s /usr/bin/fdfind /usr/local/bin/fd \
     && rm -rf /var/lib/apt/lists/*
@@ -83,15 +89,6 @@ RUN DEJA_SHA=32db767e728d447941a70cf7dc95376a1e0a96168ad79674593715ac165ed310 \
     && chmod +x /usr/local/bin/deja \
     && deja --version \
     && rm -f /tmp/deja.tar.gz
-ENV RUSTUP_HOME=/usr/local/rustup \
-    CARGO_HOME=/usr/local/cargo \
-    PATH=/usr/local/cargo/bin:$PATH
-RUN curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs \
-    | sh -s -- -y --no-modify-path --profile default --default-toolchain stable \
-        --component clippy,rustfmt,rust-analyzer \
-    && chmod -R a+w "$RUSTUP_HOME" "$CARGO_HOME" \
-    && rustc --version \
-    && cargo --version
 
 # Install just and just-lsp as prebuilt binaries (faster than cargo install).
 # SHA-256 digests are from the GitHub release assets; update with each version.
@@ -145,4 +142,22 @@ COPY opencode /tmp/opencode-harness/opencode
 RUN bash /tmp/opencode-harness/setup-opencode-harness.sh \
     && rm -rf /tmp/opencode-harness
 
+# Inherited by every variant; compose sets the same command explicitly.
 CMD ["sleep", "infinity"]
+
+# Rust toolchain (full variant only; the light variant stops at the tools stage).
+FROM tools AS rust
+ENV RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo \
+    PATH=/usr/local/cargo/bin:$PATH
+RUN curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs \
+    | sh -s -- -y --no-modify-path --profile default --default-toolchain stable \
+        --component clippy,rustfmt,rust-analyzer \
+    && chmod -R a+w "$RUSTUP_HOME" "$CARGO_HOME" \
+    && rustc --version \
+    && cargo --version
+
+FROM tools AS light
+
+# heavy is the final stage so a bare `docker build` still builds the full variant.
+FROM rust AS heavy

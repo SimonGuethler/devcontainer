@@ -1,0 +1,24 @@
+name: gpu-workspace-light
+
+services:
+  dev:
+    image: gpu-workspace:light
+    hostname: gpu-workspace-light-dev
+    restart: unless-stopped
+
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: light
+      args:
+        BASE_IMAGE: ubuntu:26.04
+
+    init: true
+    shm_size: 16gb
+    working_dir: /workspace
+
+    volumes:
+      # Mount the parent directory containing all repositories.
+      - ..:/workspace:cached
+
+    command: sleep infinity

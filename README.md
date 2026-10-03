@@ -2,21 +2,26 @@
 
 A reusable GPU development container for Python, JavaScript/TypeScript, Rust, and CUDA, with Zsh, VS Code tooling, and optional OpenCode setup for an existing LiteLLM proxy.
 
+A **light variant** (no CUDA toolchain, no Rust toolchain) runs the same tooling on an x86-64 Docker host without an NVIDIA GPU, for example a VPS: [compose.light.yml](.devcontainer/compose.light.yml). VS Code offers both variants when you reopen in a container; on the command line use `compose.light.yml` instead of `compose.yml`.
+
 ## Requirements
 
 - Docker with Docker Compose support.
-- An x86-64 host with an NVIDIA GPU configured for Docker.
+- An x86-64 host for both variants. The full variant additionally requires an NVIDIA GPU configured for Docker.
 - For OpenCode: a LiteLLM proxy URL reachable from the container and an API key. This repository does not deploy LiteLLM.
-
-Without a GPU, remove `deploy.resources.reservations.devices` and the NVIDIA environment variables from [compose.yml](.devcontainer/compose.yml) before starting.
 
 ## Quick start
 
 From this repository's root **on the host**, build and enter the container:
 
 ```sh
+# Full variant (NVIDIA GPU required)
 docker compose -f .devcontainer/compose.yml up --build -d
 docker compose -f .devcontainer/compose.yml exec dev zsh
+
+# Light variant (x86-64 host; no NVIDIA GPU required)
+docker compose -f .devcontainer/compose.light.yml up --build -d
+docker compose -f .devcontainer/compose.light.yml exec dev zsh
 ```
 
 For VS Code, install the Dev Containers extension, open this repository, and run **Dev Containers: Reopen in Container**.
@@ -48,7 +53,9 @@ Files in `/workspace` persist on the host. Home-directory settings, OpenCode cre
 | Task | Command or action |
 |------|-------------------|
 | Re-enter the container | `docker compose -f .devcontainer/compose.yml exec dev zsh` |
+| Re-enter the light container | `docker compose -f .devcontainer/compose.light.yml exec dev zsh` |
 | Rebuild after Dockerfile changes | `docker compose -f .devcontainer/compose.yml up --build -d` |
+| Rebuild the light variant | `docker compose -f .devcontainer/compose.light.yml up --build -d` |
 | Rebuild through VS Code | **Dev Containers: Rebuild Container** |
 | Stop without removing | `docker compose -f .devcontainer/compose.yml stop dev` |
 | Resume | `docker compose -f .devcontainer/compose.yml start dev` |
@@ -60,10 +67,10 @@ Run Docker Compose commands from this repository's root **on the host**. The con
 
 | Area | Tools |
 |------|-------|
-| GPU | Ubuntu-based NVIDIA CUDA development image with cuDNN |
+| GPU | Ubuntu-based NVIDIA CUDA development image with cuDNN (full variant) |
 | Python | `uv`, `uvx`, Pyright and its language server; Python environments are managed per project |
 | JavaScript / TypeScript | Node.js 24 and npm |
-| Rust | `rustc`, Cargo, Clippy, rustfmt, rust-analyzer |
+| Rust | `rustc`, Cargo, Clippy, rustfmt, rust-analyzer (full variant) |
 | Build | C/C++ toolchain, Clang, CMake, `just`, `just-lsp` |
 | Shell | Zsh, Oh My Zsh, autosuggestions, syntax highlighting, history search, fzf |
 | Utilities | Git, Git LFS, ripgrep, fd, jq, SQLite CLI, ShellCheck, tmux, croc |

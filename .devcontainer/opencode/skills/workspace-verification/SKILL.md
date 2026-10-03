@@ -34,8 +34,10 @@ before choosing commands. Record the exact commands and exit codes.
 - JS/TS/Vue: Node and npm are available. Use the package manager selected by the
   project and scripts in `package.json`; never assume npm is the project's choice.
   VS Code extensions do not provide CLI typecheckers to OpenCode.
-- Rust: rustc, cargo, clippy, rustfmt, and rust-analyzer are installed. Respect
-  repository toolchain files and existing cargo aliases/check commands.
+- Rust: rustc, cargo, clippy, rustfmt, and rust-analyzer are installed in the full
+  variant only. Respect repository toolchain files and existing cargo aliases/check
+  commands. In the light variant, report the missing toolchain as an environment
+  limitation.
 - Bash: `bash -n` checks parsing; `shellcheck` checks common shell mistakes.
   Neither validates runtime behavior. Exercise modified installers with dummy
   credentials and an isolated HOME, mocking network calls when appropriate.

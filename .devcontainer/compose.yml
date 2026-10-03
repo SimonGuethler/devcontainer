@@ -9,6 +9,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      target: heavy
 
     init: true
     shm_size: 16gb

@@ -280,6 +280,10 @@ against SHA-256 digests before extraction. Update each Dockerfile version and it
 digest together. Node intentionally tracks the v24 release line, and Rust tracks
 stable; fresh builds pick up toolchain fixes when those layers are rebuilt.
 Projects can select a specific Rust toolchain with `rust-toolchain.toml`.
+The image has two build targets that use the same shared tooling instructions:
+`heavy` uses the CUDA development base image and adds Rust, while `light` uses
+plain `ubuntu:26.04` and skips Rust. `compose.yml` builds `heavy`,
+`compose.light.yml` builds `light` on hosts without an NVIDIA GPU.
 PDF MCP is pinned to `@sylphx/pdf-reader-mcp@4.1.3` so restarting it cannot silently
 select a newer release. Rerunning setup with PDF enabled migrates the old workspace
 `@latest` command while preserving custom commands.
@@ -289,8 +293,10 @@ select a newer release. Rerunning setup with PDF enabled migrates the old worksp
 | File | Purpose |
 |------|---------|
 | `.devcontainer/Dockerfile` | Base image, tool versions, and packages |
-| `.devcontainer/compose.yml` | Container service, workspace mount, GPU access, and shared memory |
-| `.devcontainer/devcontainer.json` | VS Code extensions, settings, and creation hooks |
+| `.devcontainer/compose.yml` | Full variant: container service, workspace mount, GPU access, and shared memory |
+| `.devcontainer/compose.light.yml` | Light variant: same service without GPU access or the Rust toolchain |
+| `.devcontainer/devcontainer.json` | VS Code extensions, settings, and creation hooks (full variant) |
+| `.devcontainer/light/devcontainer.json` | VS Code entry for the light variant |
 | `.devcontainer/.zshrc` | Shell theme and plugins |
 | `.devcontainer/setup-zsh.sh` | Shell setup and configuration sync |
 | `.devcontainer/setup-opencode.sh` | OpenCode installation and LiteLLM configuration |
@@ -298,6 +304,32 @@ select a newer release. Rerunning setup with PDF enabled migrates the old worksp
 | `.devcontainer/AGENTS.md` | Coding guidelines for optional OpenCode setup |
 
 ## Validation
+
+After changing the Dockerfile or Compose files, run from the repository root on
+the host:
+
+```sh
+docker compose -f .devcontainer/compose.yml config --quiet
+docker compose -f .devcontainer/compose.light.yml config --quiet
+docker compose -f .devcontainer/compose.light.yml build dev
+docker run --rm --network none gpu-workspace:light sh -ec '
+  for tool in node npm uv pyright clang cmake make gcc just just-lsp croc xz zstd; do
+    command -v "$tool"
+  done
+  node --version
+  uv --version
+  test -z "$(command -v cargo)"
+  test ! -d /usr/local/cuda
+  test "$LANG" = C.UTF-8
+'
+```
+
+For full-image changes, also build it and check Rust:
+
+```sh
+docker compose -f .devcontainer/compose.yml build dev
+docker run --rm --network none gpu-workspace:dev cargo --version
+```
 
 Run inside the container, from `/workspace`, after changing setup scripts:
 
