@@ -26,6 +26,9 @@
 !.devcontainer/opencode/commands/hyper-research.md
 !.devcontainer/opencode/commands/brainstorm.md
 !.devcontainer/opencode/commands/hyper-execute.md
+!.devcontainer/opencode/commands/video-analysis.md
+!.devcontainer/opencode/commands/video-analysis.py
+!.devcontainer/opencode/commands/video-analysis-setup.sh
 !.devcontainer/opencode/playwright-cli.config.json
 !.devcontainer/opencode/optional-skills/
 !.devcontainer/opencode/optional-skills/playwright-cli/

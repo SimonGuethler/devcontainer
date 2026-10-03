@@ -75,6 +75,11 @@ cmp -s "${SCRIPT_DIR}/opencode/commands/image-gen.md" "${CONFIG_DIR}/commands/im
 cmp -s "${SCRIPT_DIR}/opencode/commands/image-gen.sh" "${CONFIG_DIR}/commands/image-gen.sh"
 bash "${CONFIG_DIR}/commands/image-gen.sh" --help > "${TEST_ROOT}/image-help"
 grep -q 'PNG/base64 output only' "${TEST_ROOT}/image-help"
+cmp -s "${SCRIPT_DIR}/opencode/commands/video-analysis.md" "${CONFIG_DIR}/commands/video-analysis.md"
+cmp -s "${SCRIPT_DIR}/opencode/commands/video-analysis.py" "${CONFIG_DIR}/commands/video-analysis.py"
+cmp -s "${SCRIPT_DIR}/opencode/commands/video-analysis-setup.sh" "${CONFIG_DIR}/commands/video-analysis-setup.sh"
+grep -q 'frame-vision' "${CONFIG_DIR}/commands/video-analysis.py"
+grep -q 'whisperx==3.8.6' "${CONFIG_DIR}/commands/video-analysis-setup.sh"
 run
 agents=("${CONFIG_DIR}"/agents/*)
 [[ ${#agents[@]} -eq 2 ]]

@@ -54,6 +54,9 @@ FILES=(
     commands/brainstorm.md
     commands/image-gen.md
     commands/image-gen.sh
+    commands/video-analysis.md
+    commands/video-analysis.py
+    commands/video-analysis-setup.sh
     agents/apollo-analyzer.md
     agents/workspace-review.md
     skills/workspace-verification/SKILL.md
