@@ -15,6 +15,17 @@ services:
     shm_size: 16gb
     working_dir: /workspace
 
+    # Mirror the standard CUDA container recipe (vLLM, Ollama): unlimited
+    # pinned memory, a 64 MiB stack, and raised file descriptors. Without
+    # this block, limits depend on the host Docker daemon configuration.
+    # Not applied to the light variant, which has no CUDA workload.
+    ulimits:
+      memlock: -1
+      stack: 67108864
+      nofile:
+        soft: 65536
+        hard: 65536
+
     volumes:
       # Mount the parent directory containing all repositories.
       - ..:/workspace:cached

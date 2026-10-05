@@ -9,11 +9,14 @@ examples, automatic scope expansion, and premature execution/branch finishing.
 - The active primary agent remains the mission controller. Invocation authorizes
   mission artifacts and implementation within the approved contract; it does not
   require changing the default Apollo agent or provider configuration.
-- Dispatch Prometheus with `ulw-plan` and the approved contract/approval reference.
-  Its role is planning only. The controller owns user decisions and subsequent
+- Dispatch the planner as a category dispatch with `ulw-plan` and the approved
+  contract/approval reference. No `prometheus` agent exists in OpenCode; the
+  equivalent-specialist rule maps planning to a category-routed worker with the
+  `ulw-plan` skill loaded. Its role is planning only. The controller owns user
+  decisions and subsequent
   execution. The contract satisfies the planning approval gate; a material change
   comes back as an amendment. Planning's "ideal state" cannot enlarge scope.
-- Use `task(subagent_type="prometheus"|"metis"|"momus"|"oracle"|"librarian"|"explore",
+- Use `task(subagent_type="metis"|"momus"|"oracle"|"librarian"|"explore",
   load_skills=[...], run_in_background=true, ...)` for named specialists, or
   `task(category="...", load_skills=[...], run_in_background=true, ...)` for workers.
   Fill actual required fields; never combine category and subagent_type. Momus
@@ -37,12 +40,25 @@ examples, automatic scope expansion, and premature execution/branch finishing.
 
 ## Boulder and continuation lifecycle
 
-Register one mission-owned Boulder `work_id`; retain other `works` entries and
+Register one mission-owned Boulder `work_id` at Phase 0 close — before the
+contract approval gate — not at Phase 2 start; later phases add fields
+(active_plan, worktree, task refs) but the work exists from the mission's first
+turn. Retain other `works` entries and
 unknown fields. OpenCode session identities use `opencode:<session_id>`, not
 the `codex:` prefixes in portable skill examples. Use the current schema and
 record the controller/session, agent, active_plan, worktree, and work_id in the
 mission ledger. The ulw evidence ledger, mission ledger, plan checkboxes, and
 todos must agree; link raw ulw evidence instead of duplicating contradictory state.
+
+Background-completion notifications are best-effort, not a guaranteed wake-up
+(observed: a turn ended seconds before its own notification, and the session
+stayed dormant for hours). Any turn that must end with mission-owned background
+tasks pending therefore records those task IDs and the resume path as its final
+action, and the next user message — however minimal — reconciles dispatch state
+from the ledger before new work. When collecting a completed dispatch's output
+while new findings are pending, fold the collected findings into the artifacts
+in the same turn; a collection turn that ends without folding re-pays the
+collect cost on every later step.
 
 Before Phase 3, set this work's status to `paused` and update the top-level mirror
 only if `active_work_id` names this work (or it is the sole legacy work). Cancel

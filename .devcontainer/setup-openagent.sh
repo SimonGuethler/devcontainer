@@ -26,16 +26,17 @@ CONTENT="$(printf '%s' "$EXISTING" | jq -e -s --arg model "$MODEL" '
         team_mode: {enabled: true},
         codegraph: {enabled: true, auto_provision: true},
         background_task: {defaultConcurrency: 3},
-        sisyphus_agent: {default_builder_enabled: true, replace_plan: true}
+        sisyphus_agent: {default_builder_enabled: false, replace_plan: true}
       } * (."[opencode]" // {}))
     | ."[opencode]" |= (
         # 4.19.4 treats ordinary messages as goals and throws above 2000 chars.
         # Override the old setup default on reruns, not just fresh installs.
         .goal.enabled = false
         # Apollo - Analyzer is the OpenCode default. OMO ranks it first, followed by these
-        # core agents; the retained native builder follows the ranked agents.
+        # core agents. default_builder_enabled = false keeps the native build agent as a
+        # hidden subagent instead of a selectable primary agent.
         | .agent_order = ["sisyphus", "prometheus", "atlas"]
-        | .sisyphus_agent.default_builder_enabled = true
+        | .sisyphus_agent.default_builder_enabled = false
         | .sisyphus_agent.planner_enabled = true
         | .sisyphus_agent.replace_plan = true
         | .agents.hephaestus.mode = "subagent"
@@ -54,7 +55,7 @@ CONTENT="$(printf '%s' "$EXISTING" | jq -e -s --arg model "$MODEL" '
   ' 2>/dev/null)" || { printf 'Invalid OpenAgent configuration; no changes made.\n' >&2; exit 1; }
 if [[ "$DRY_RUN" == true ]]; then
     printf 'Would default CodeGraph to enabled with automatic provisioning, disable OpenAgent and CodeGraph telemetry and the faulty goal hook, and bound background concurrency.\n'
-    printf 'Would configure the primary cycle: Apollo - Analyzer -> Sisyphus -> Prometheus -> Atlas -> OpenCode Builder.\n'
+    printf 'Would configure the primary cycle: Apollo - Analyzer -> Sisyphus -> Prometheus -> Atlas.\n'
     if [[ -n "$MODEL" ]]; then
         printf 'Would switch built-in OpenAgent agent/category models to %s.\n' "$MODEL"
     else
@@ -74,7 +75,7 @@ if [[ ! -f "$CONFIG_FILE" ]] || ! cmp -s "$CONFIG_FILE" <(printf '%s\n' "$CONTEN
     printf '%s\n' "$CONTENT" > "$TEMP_FILE"
     mv -f -- "$TEMP_FILE" "$CONFIG_FILE"
 fi
-printf 'OpenAgent configured. With setup-opencode.sh, new sessions start on Apollo - Analyzer; cycle through Sisyphus, Prometheus, Atlas, and OpenCode Builder. Restart OpenCode. The faulty /goal continuation hook is disabled.\n'
+printf 'OpenAgent configured. With setup-opencode.sh, new sessions start on Apollo - Analyzer; cycle through Sisyphus, Prometheus, and Atlas. Restart OpenCode. The faulty /goal continuation hook is disabled.\n'
 printf 'OpenAgent and CodeGraph telemetry are disabled, including previously enabled settings.\n'
 printf 'CodeGraph defaults to enabled with automatic provisioning at session start; existing explicit settings are preserved. After first provisioning, restart OpenCode if its MCP still shows disabled.\n'
 if [[ -z "$MODEL" ]]; then

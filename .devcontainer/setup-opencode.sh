@@ -639,8 +639,8 @@ write_configuration() {
     if [[ "$OPENAGENT_FLAG" == yes ]]; then
         OPENAGENT_PLUGIN_VER="$(npm view oh-my-openagent version 2>/dev/null || true)"
         if [[ ! "$OPENAGENT_PLUGIN_VER" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
-                || [[ "$(printf '%s\n' "$OPENAGENT_PLUGIN_VER" 4.19.4 | sort -V | head -n1)" != 4.19.4 ]]; then
-            OPENAGENT_PLUGIN_VER=4.19.4
+                || [[ "$(printf '%s\n' "$OPENAGENT_PLUGIN_VER" 5.1.17 | sort -V | head -n1)" != 5.1.17 ]]; then
+            OPENAGENT_PLUGIN_VER=5.1.17
             warn "Could not resolve a supported OpenAgent release; pinning ${OPENAGENT_PLUGIN_VER}"
         fi
         info "Pinning oh-my-openagent@${OPENAGENT_PLUGIN_VER}"
@@ -732,6 +732,11 @@ write_configuration() {
 write_configuration
 if [[ "$OPENAGENT_FLAG" == yes ]]; then
     OMO_MODEL="$OMO_MODEL" bash "$OPENAGENT_SETUP"
+    # Workaround for upstream lost parent wakes (see fix-omo-parent-wake.sh).
+    # Non-fatal: an upstream bundle change must not abort setup.
+    if ! bash "$SCRIPT_DIR/fix-omo-parent-wake.sh"; then
+        warn "OMO parent-wake patch not applied; background task wakes may be lost until it is fixed"
+    fi
 fi
 
 if [[ ${#HARNESS_ARGS[@]} -gt 0 || "$OPENAGENT_FLAG" == yes ]]; then

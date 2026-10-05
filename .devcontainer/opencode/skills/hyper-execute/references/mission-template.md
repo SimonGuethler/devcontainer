@@ -95,10 +95,12 @@ transition history; do not overwrite the evidence for an earlier decision.
 - Plan: <path, version/hash, review references>
 - Capabilities: <tool/agent/category mappings, isolation, concurrency, skips/blockers>
 - Repository: <branch, worktree, wave/lane refs, mission Boulder work_id>
-- Continuation: <Boulder status/mirror, mission todo states, shutdown receipts>
+- Continuation: <Boulder status/mirror, mission todo states, shutdown receipts;
+  set at Phase 0 close — work_id registered before the contract gate>
 - Baseline: <mission_base, baseline_source_tree, initial status/inventory path>
 - Candidate: <verification_head, candidate_id, source snapshot/manifest path>
 - Budget: <rounds started/limit, clean streak and its candidate_id, user limits>
+- Controller context: <peak input tokens per phase; compaction checkpoints taken>
 
 | Task | Lane/worktree | State | task_base/task_head; source manifest | Review/report |
 |---|---|---|---|---|

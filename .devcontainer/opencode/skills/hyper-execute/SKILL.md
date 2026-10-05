@@ -41,6 +41,27 @@ Resolve routine choices with `Ruling: <what> — <why> — <cost if wrong>` in
 the ledger. Rulings may reject findings with contrary evidence, but cannot waive
 an approved AC or accept an unresolved Critical/Important defect as verified.
 
+## Turn continuity (all phases)
+
+Ending the active turn while mission-owned work is pending is a mission-stalling
+defect: nothing may wake the session, and the mission idles until the user
+notices. Therefore:
+
+- **Never end a turn while a mission-owned background task is pending.** If a
+  turn must end anyway (harness limit, forced compaction), the final message
+  must state the pending task IDs and that a plain `resume` continues the
+  mission — before ending the turn, not in a later one.
+- **Chain phase closes into the next dispatch in the same turn.** A summary
+  that announces "Phase N complete — next: …" and then ends the turn is an
+  anti-pattern when proceeding is already authorized. Close the phase, take the
+  next step (dispatch, registration, scan), and only then summarize.
+- **Register mission continuation at Phase 0 close** (Boulder work and ledger
+  continuation row), not at Phase 2 start, so every later turn is resumable and
+  wake-up does not depend solely on background notifications.
+- Do not rely on background-completion notifications as the only wake-up path.
+  They are best-effort delivery; a turn ended with pending work assumes they
+  will be lost.
+
 ## Capability preflight
 
 Before creating the contract, check actual tool schemas, installed skills, agent
@@ -102,6 +123,12 @@ until Phase 0. For an existing mission, record the blocker in its ledger.
    approval. Record it and invalidate affected evidence. Record operational path
    and budget updates separately; they do not approve weaker verification.
 
+At Phase 0 close — before presenting the contract, and on resume before Phase 1
+— register the mission Boulder work and the ledger's continuation row (Turn
+continuity), so the mission is resumable from its first turn. While awaiting
+contract approval the turn stays open; the approval prompt is work in progress.
+After approval, chain directly into Phase 1 planning in the same turn.
+
 ## Phase 1 — Plan
 
 - **Plan path given** (or a resumed mission with a plan): validate against the
@@ -111,20 +138,49 @@ until Phase 0. For an existing mission, record the blocker in its ledger.
   audit and dual Momus+Oracle reviews required by ulw-plan.
   Repair only affected sections and re-review them. Do not remove an AC through a
   scope ruling or accept structure as proof of review.
-- **Goal statement**: dispatch a `prometheus` planner with `ulw-plan`, the approved
-  contract and approval reference, and a plan-artifact-only boundary. Follow
+- **Goal statement**: dispatch the planner as a category dispatch with `ulw-plan`
+  (equivalent specialist — no `prometheus` agent exists in OpenCode; the runtime
+  reference defines the mapping), the approved
+  contract and approval reference, and a plan-artifact-only boundary. The
+  planner's first instruction is to write the plan draft to its artifact path
+  **before any review or refinement** — a truncated turn after analysis but
+  before Write has already cost full re-runs — then iterate on the file. Follow
   classification, interview or announced defaults, scaffold, mandatory
   Metis, dual Momus+Oracle review. Hyper-execute's approved contract replaces its
   separate plan approval gate; ask only for a material contract amendment or
   missing authorization. Never write your own plan format. Record the plan path,
   version, and review references in the ledger and mission file.
+- **Reviews run from the controller only.** Never route a Metis/Momus/Oracle
+  review through the planner's session or any worker's harness: bounded
+  reviewer dispatches nested inside another agent's continuation die at harness
+  step caps with zero findings (observed failure mode) and their completion
+  notifications can race the parent's turn end. Dispatch reviewers directly via
+  `task(subagent_type=…, run_in_background=true)` with explicit read-only
+  inputs, the plan+contract+goal paths, and a bounded tool-call cap.
 - **Opt-in stress test**: when the mission file says `stress_test: true`,
   run one `roundtable` on the completed plan in addition to the dual review,
   and fold accepted findings into the plan before Phase 2. Off by default.
 
+## Controller context budget
+
+The controller is the one context that cannot be restarted mid-mission without
+reconciliation, so it gets worker-grade context hygiene: it holds state and
+references, not full artifact bodies. Read the plan, contract, spec, and review
+reports when needed to act; afterwards reference them by path and hash, and
+re-read only the sections a step touches (`grep` for the anchor before a targeted
+read). Pull each review report from `background_output` once into the fold edit;
+do not re-fetch or quote it back in later steps. Never paste plan or contract
+text into dispatch prompts — paths and hashes only. Track the controller's peak
+input-token figure per phase in the ledger. At roughly 60% of the context
+window: finish the current step, write recovery state to the ledger (pending
+task IDs, next action), then compact before continuing — do not wait for a
+forced compaction mid-wave.
+
 ## Phase 2 — Execute
 
-Load the `ulw-execute` skill and follow its machinery — Boulder state, todos
+Load the `ulw-execute` skill and follow its machinery — Boulder state (work
+registered at Phase 0 close; Phase 2 adds active_plan, worktree, and task
+refs), todos
 mirroring plan checkboxes, dependency-ordered waves, task-owned worktrees,
 per-lane completion-condition watchers, category-routed workers, and
 "inconclusive is never a pass". Hyper-execute adds the layers below. When

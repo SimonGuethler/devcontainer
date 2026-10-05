@@ -484,7 +484,7 @@ cp "${TEST_ROOT}/before-roundtable-modes" "$CONFIG_FILE"
 printf 'PASS: Zen disabled; Roundtable modes, tuple preservation, reruns, dry-run, and invalid flags\n'
 
 main_run --openagent --omo-model litellm/test-model
-check '([.plugin[] | select(startswith("oh-my-openagent@"))] == ["oh-my-openagent@4.19.4"])'
+check '([.plugin[] | select(startswith("oh-my-openagent@"))] == ["oh-my-openagent@5.1.17"])'
 check '.default_agent == "apollo-analyzer"'
 cmp -s "${SCRIPT_DIR}/opencode/agents/apollo-analyzer.md" "${isolated_home}/.config/opencode/agents/apollo-analyzer.md"
 omo_config="${isolated_home}/.omo/omo.json"
@@ -493,7 +493,7 @@ jq -e '."[opencode]" | (.goal.enabled == false) and (.goal.auto_start == false)
     and (.codegraph.enabled == true) and (.codegraph.auto_provision == true)
     and (.telemetry == false) and (.codegraph.telemetry == false)
     and .agent_order == ["sisyphus", "prometheus", "atlas"]
-    and .sisyphus_agent.default_builder_enabled == true
+    and .sisyphus_agent.default_builder_enabled == false
     and .sisyphus_agent.replace_plan == true
     and .agents.hephaestus.mode == "subagent"
     and .agents["apollo-analyzer"].displayName == "Apollo - Analyzer"

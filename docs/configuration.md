@@ -95,11 +95,11 @@ current version installed by `--install`). Restart OpenCode after setup.
 
 Apollo keeps the configuration ID `apollo-analyzer`. Setup writes `agents["apollo-analyzer"].displayName = "Apollo - Analyzer"` inside `[opencode]` in `~/.omo/omo.json`; OpenAgent maps both the agent registration and `default_agent` to that display name at runtime. Model settings remain under `agent["apollo-analyzer"]` in OpenCode's configuration. Without OpenAgent, the Markdown agent uses its filename-derived name, `apollo-analyzer`. For an existing installation, run `bash /workspace/.devcontainer/setup-openagent.sh` and restart OpenCode to apply the display name. If you manage `omo.jsonc` manually, add the same `displayName` setting there.
 
-Setup registers a pinned `oh-my-openagent` plugin (minimum 4.19.4). OpenCode downloads it on startup; no separate provider login or upstream interactive installer is run.
+Setup registers a pinned `oh-my-openagent` plugin (minimum 5.1.17). OpenCode downloads it on startup; no separate provider login or upstream interactive installer is run.
 
 CodeGraph defaults to enabled with automatic provisioning (`[opencode].codegraph.enabled` and `auto_provision` are `true`). OpenAgent downloads its managed CodeGraph binary and initializes the project index at session start; the Dockerfile already provides Node.js 24. The initial download requires network access. If the MCP still shows disabled after provisioning, restart OpenCode so it can detect the binary. Unsupported runtimes, excluded project paths, or failed downloads can leave CodeGraph unavailable without blocking the other agents. Existing explicit CodeGraph settings and disable lists are preserved; set `codegraph.enabled` to `false` to opt out. For manually managed `omo.jsonc`, add these settings inside `[opencode]` yourself.
 
-After running `setup-opencode.sh --openagent`, restart OpenCode and start a new session on Apollo - Analyzer. The primary-agent cycle is **Apollo - Analyzer → Sisyphus → Prometheus → Atlas → OpenCode-Builder → Apollo - Analyzer**. Setup sets `default_agent` to `apollo-analyzer`, configures OMO's core order, and keeps Hephaestus and native Plan as subagents rather than cycle entries. OpenCode's native builder remains available as OpenCode-Builder. Rerunning setup reapplies this cycle; additional user-defined primary agents can still appear. Existing sessions or an explicit `--agent` selection can retain a different active agent.
+After running `setup-opencode.sh --openagent`, restart OpenCode and start a new session on Apollo - Analyzer. The primary-agent cycle is **Apollo - Analyzer → Sisyphus → Prometheus → Atlas → Apollo - Analyzer**. Setup sets `default_agent` to `apollo-analyzer`, configures OMO's core order, and keeps Hephaestus and native Plan as subagents rather than cycle entries. OpenCode's native build agent stays available internally as a hidden subagent but is not selectable as a primary agent. Rerunning setup reapplies this cycle; additional user-defined primary agents can still appear. Existing sessions or an explicit `--agent` selection can retain a different active agent.
 
 Apollo - Analyzer's source is `.devcontainer/opencode/agents/apollo-analyzer.md`. The image build and post-create harness install it into `~/.config/opencode/agents/apollo-analyzer.md`, backing up a differing installed copy. Apollo - Analyzer analyzes without edits by default, makes edits or implements changes only when explicitly requested, then returns to analysis. Tool permissions are unrestricted to avoid routine approval prompts. When authorized, it keeps temporary research artifacts under `<project-root>/.apollo/tmp/` (repository clones in `repos/`, downloads in `downloads/`, extracted text in `extracted/`, and working notes in `notes/`). After editing its source, rerun `bash /workspace/.devcontainer/setup-opencode-harness.sh` and restart OpenCode. The local harness installs the agent without changing provider settings; the main setup with `--openagent` configures startup and cycling.
 
@@ -220,7 +220,11 @@ limits: it plans through the ulw-plan workflow, validates supplied plans and rev
 provenance, executes through ulw-execute's worker waves with per-task reviews and capped
 fix loops, then runs independent verification rounds on fresh subagents that
 never see implementer reports (correctness, security for relevant behavior or
-infrastructure/configuration changes, and QA) against a pinned candidate. A clean
+infrastructure/configuration changes, and QA) against a pinned candidate. The run
+registers its continuation state at Phase 0 close and never ends a turn while
+mission-owned background work is pending — a turn that must end records pending
+task IDs and resumes on any user message, so the mission cannot silently idle
+between phases. A clean
 round requires every criterion verified,
 all required verifier coverage complete, passing QA, and no open confirmed serious
 findings; high-stakes missions require two consecutive clean rounds on the same
@@ -309,8 +313,8 @@ select a newer release. Rerunning setup with PDF enabled migrates the old worksp
 | File | Purpose |
 |------|---------|
 | `.devcontainer/Dockerfile` | Base image, tool versions, and packages |
-| `.devcontainer/compose.yml` | Full variant: container service, workspace mount, GPU access, and shared memory |
-| `.devcontainer/compose.light.yml` | Light variant: same service without GPU access or the Rust toolchain |
+| `.devcontainer/compose.yml` | Full variant: container service, workspace mount, GPU access, shared memory, and CUDA ulimits |
+| `.devcontainer/compose.light.yml` | Light variant: same service without GPU access, CUDA ulimits, or the Rust toolchain |
 | `.devcontainer/devcontainer.json` | VS Code extensions, settings, and creation hooks (full variant) |
 | `.devcontainer/light/devcontainer.json` | VS Code entry for the light variant |
 | `.devcontainer/.zshrc` | Shell theme and plugins |

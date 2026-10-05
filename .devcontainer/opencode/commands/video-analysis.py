@@ -159,17 +159,25 @@ def chat_completion(
                 continue
             raise PipelineError(f"Chat endpoint unreachable: {exc}") from exc
         try:
-            message = data["choices"][0]["message"]
+            choice = data["choices"][0]
+            message = choice["message"]
             content = message.get("content")
+            finish_reason = choice.get("finish_reason")
         except (KeyError, IndexError, TypeError) as exc:
             raise PipelineError(f"Unexpected chat response shape: {exc}") from exc
         if isinstance(content, str) and content.strip():
             return content
-        if not budget_retried:
+        if finish_reason == "length":
+            if budget_retried:
+                break
             budget_retried = True
             body["max_tokens"] = min(max_tokens * 4, 100_000)
             log(f"  chat: empty content (reasoning exhausted budget); retrying with {body['max_tokens']} tokens")
             continue
+        raise PipelineError(
+            "Chat response had empty content without truncation "
+            f"(finish_reason={finish_reason!r}); a larger token budget would not help."
+        )
     raise PipelineError(
         "Chat response had empty content even with increased token budget."
     )
