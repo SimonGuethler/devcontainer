@@ -24,7 +24,6 @@ CONTENT="$(printf '%s' "$EXISTING" | jq -e -s --arg model "$MODEL" '
     | ."[opencode]" = ({
         goal: {enabled: false, auto_start: false, default_max_iterations: 100},
         team_mode: {enabled: true},
-        codegraph: {enabled: true, auto_provision: true},
         background_task: {defaultConcurrency: 3},
         sisyphus_agent: {default_builder_enabled: false, replace_plan: true}
       } * (."[opencode]" // {}))
@@ -42,6 +41,7 @@ CONTENT="$(printf '%s' "$EXISTING" | jq -e -s --arg model "$MODEL" '
         | .agents.hephaestus.mode = "subagent"
         | .agents["apollo-analyzer"].displayName = "Apollo - Analyzer"
         | .disabled_mcps = (((.disabled_mcps // []) + ["context7"]) | unique)
+        | del(.codegraph)
         | if $model != "" then
             reduce ["sisyphus", "hephaestus", "prometheus", "oracle", "librarian", "explore", "multimodal-looker", "metis", "momus", "atlas", "sisyphus-junior"][] as $agent
                 (.; .agents[$agent].model = $model)
@@ -50,11 +50,10 @@ CONTENT="$(printf '%s' "$EXISTING" | jq -e -s --arg model "$MODEL" '
                 (.; .categories[$category].model = $model)
           else . end
         | .telemetry = false
-        | .codegraph.telemetry = false
       )
   ' 2>/dev/null)" || { printf 'Invalid OpenAgent configuration; no changes made.\n' >&2; exit 1; }
 if [[ "$DRY_RUN" == true ]]; then
-    printf 'Would default CodeGraph to enabled with automatic provisioning, disable OpenAgent and CodeGraph telemetry and the faulty goal hook, and bound background concurrency.\n'
+    printf 'Would disable OpenAgent and telemetry, remove the retired codegraph key, and bound background concurrency.\n'
     printf 'Would configure the primary cycle: Apollo - Analyzer -> Sisyphus -> Prometheus -> Atlas.\n'
     if [[ -n "$MODEL" ]]; then
         printf 'Would switch built-in OpenAgent agent/category models to %s.\n' "$MODEL"
@@ -76,8 +75,7 @@ if [[ ! -f "$CONFIG_FILE" ]] || ! cmp -s "$CONFIG_FILE" <(printf '%s\n' "$CONTEN
     mv -f -- "$TEMP_FILE" "$CONFIG_FILE"
 fi
 printf 'OpenAgent configured. With setup-opencode.sh, new sessions start on Apollo - Analyzer; cycle through Sisyphus, Prometheus, and Atlas. Restart OpenCode. The faulty /goal continuation hook is disabled.\n'
-printf 'OpenAgent and CodeGraph telemetry are disabled, including previously enabled settings.\n'
-printf 'CodeGraph defaults to enabled with automatic provisioning at session start; existing explicit settings are preserved. After first provisioning, restart OpenCode if its MCP still shows disabled.\n'
+printf 'OpenAgent telemetry is disabled, including previously enabled settings. The retired codegraph key is removed.\n'
 if [[ -z "$MODEL" ]]; then
     printf 'No workspace model defaults applied. Check OpenAgent agent/category assignments; upstream defaults may require other providers.\n'
 else

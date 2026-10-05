@@ -21,8 +21,7 @@ cd "${TEST_ROOT}/project"
 bash "${SCRIPT_DIR}/setup-opencode-harness.sh" --config-dir "$OPENCODE_CONFIG_DIR" >/dev/null
 bash "${SCRIPT_DIR}/setup-openagent.sh" >/dev/null
 # Disable external services; this check never sends a model prompt.
-jq '."[opencode]".codegraph = {enabled: false, auto_provision: false}
-    | ."[opencode]".disabled_mcps = ["context7", "websearch", "grep_app"]' \
+jq '."[opencode]".disabled_mcps = ["context7", "websearch", "grep_app"]' \
     "$HOME/.omo/omo.json" > "${TEST_ROOT}/omo.json"
 cp "${TEST_ROOT}/omo.json" "$HOME/.omo/omo.json"
 jq -n --arg plugin "file://${OPENAGENT_BUNDLE}" '{

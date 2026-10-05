@@ -496,8 +496,8 @@ cmp -s "${SCRIPT_DIR}/opencode/agents/apollo-analyzer.md" "${isolated_home}/.con
 omo_config="${isolated_home}/.omo/omo.json"
 jq -e '."[opencode]" | (.goal.enabled == false) and (.goal.auto_start == false)
     and (.team_mode.enabled == true) and .background_task.defaultConcurrency == 3
-    and (.codegraph.enabled == true) and (.codegraph.auto_provision == true)
-    and (.telemetry == false) and (.codegraph.telemetry == false)
+    and (has("codegraph") | not)
+    and (.telemetry == false)
     and .agent_order == ["sisyphus", "prometheus", "atlas"]
     and .sisyphus_agent.default_builder_enabled == false
     and .sisyphus_agent.replace_plan == true
@@ -508,7 +508,6 @@ jq -e '."[opencode]" | (.goal.enabled == false) and (.goal.auto_start == false)
     and ([.categories.quick, .categories["deep-low"], .categories["deep-high"]]
         | all(.[]; .model == "litellm/test-model"))' "$omo_config" >/dev/null
 jq '."[opencode]".goal.enabled = false | ."[opencode]".background_task.defaultConcurrency = 2
-    | ."[opencode]".codegraph = {enabled: false, auto_provision: false, telemetry: false}
     | ."[opencode]".agents.sisyphus.model = "litellm/custom-main"
     | ."[opencode]".agents.sisyphus.temperature = 0.2
     | ."[opencode]".agents.custom = {model: "litellm/custom-role"}
@@ -592,15 +591,15 @@ cmp -s "$CONFIG_FILE" "${TEST_ROOT}/before-invalid-omo"
 cp "${TEST_ROOT}/omo-before" "$omo_config"
 printf 'PASS: OpenAgent configuration, repeat installation, models, disable, and JSONC preservation\n'
 
-# An explicit telemetry opt-in must be disabled on rerun, including CodeGraph.
-jq '."[opencode]".telemetry = true | ."[opencode]".codegraph.telemetry = true' \
+# An explicit telemetry opt-in must be disabled on rerun.
+jq '."[opencode]".telemetry = true' \
     "$omo_config" > "${TEST_ROOT}/omo-telemetry"
 cp "${TEST_ROOT}/omo-telemetry" "$omo_config"
 main_run --dry-run --openagent
 cmp -s "$omo_config" "${TEST_ROOT}/omo-telemetry"
 main_run --openagent
-jq -e --arg model "$switch_model" '."[opencode]" | .telemetry == false and .codegraph.telemetry == false
-    and .codegraph.enabled == false and .agents.sisyphus.model == $model' \
+jq -e --arg model "$switch_model" '."[opencode]" | .telemetry == false
+    and .agents.sisyphus.model == $model' \
     "$omo_config" >/dev/null
 cp "$omo_config" "${TEST_ROOT}/omo-telemetry-disabled"
 main_run --openagent
@@ -619,12 +618,14 @@ jq -e '."[opencode]" | .agents == {hephaestus: {mode: "subagent"}, "apollo-analy
     "${TEST_ROOT}/generic-omo/.omo/omo.json" >/dev/null
 printf 'PASS: old goal default disabled and generic setup has no model assignments\n'
 
-# Existing installations gain CodeGraph defaults without losing custom options.
-jq '."[opencode]".codegraph = {daemon: false}' "$omo_config" > "${TEST_ROOT}/omo-codegraph"
+# A retired codegraph key is removed on rerun without losing custom options.
+jq '."[opencode]".codegraph = {enabled: true, auto_provision: true, daemon: false}
+    | ."[opencode]".agents.custom = {model: "litellm/custom-role"}' "$omo_config" > "${TEST_ROOT}/omo-codegraph"
 cp "${TEST_ROOT}/omo-codegraph" "$omo_config"
 main_run --openagent
-jq -e '."[opencode]".codegraph | .enabled == true and .auto_provision == true and .daemon == false' "$omo_config" >/dev/null
-printf 'PASS: CodeGraph defaults added to existing configurations and explicit opt-outs preserved\n'
+jq -e '."[opencode]" | (has("codegraph") | not)
+    and .agents.custom.model == "litellm/custom-role"' "$omo_config" >/dev/null
+printf 'PASS: retired codegraph key removed and custom options preserved\n'
 
 # Failed authentication must leave the existing config untouched and must never
 # invoke an installer, npm, or npx.

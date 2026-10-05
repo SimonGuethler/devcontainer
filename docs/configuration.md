@@ -97,7 +97,7 @@ Apollo keeps the configuration ID `apollo-analyzer`. Setup writes `agents["apoll
 
 Setup registers a pinned `oh-my-openagent` plugin (minimum 5.1.17). OpenCode downloads it on startup; no separate provider login or upstream interactive installer is run.
 
-CodeGraph defaults to enabled with automatic provisioning (`[opencode].codegraph.enabled` and `auto_provision` are `true`). OpenAgent downloads its managed CodeGraph binary and initializes the project index at session start; the Dockerfile already provides Node.js 24. The initial download requires network access. If the MCP still shows disabled after provisioning, restart OpenCode so it can detect the binary. Unsupported runtimes, excluded project paths, or failed downloads can leave CodeGraph unavailable without blocking the other agents. Existing explicit CodeGraph settings and disable lists are preserved; set `codegraph.enabled` to `false` to opt out. For manually managed `omo.jsonc`, add these settings inside `[opencode]` yourself.
+OpenAgent no longer writes the retired `codegraph` configuration key, which current plugin releases reject as unknown; setup removes it from existing `~/.omo/omo.json` files on rerun. Do not re-add it manually.
 
 After running `setup-opencode.sh --openagent`, restart OpenCode and start a new session on Apollo - Analyzer. The primary-agent cycle is **Apollo - Analyzer → Sisyphus → Prometheus → Atlas → Apollo - Analyzer**. Setup sets `default_agent` to `apollo-analyzer`, configures OMO's core order, and keeps Hephaestus and native Plan as subagents rather than cycle entries. OpenCode's native build agent stays available internally as a hidden subagent but is not selectable as a primary agent. Rerunning setup reapplies this cycle; additional user-defined primary agents can still appear. Existing sessions or an explicit `--agent` selection can retain a different active agent.
 
@@ -118,8 +118,8 @@ Plugin loading and model execution with OpenCode 1.18.30 require a live smoke te
 Telemetry is disabled through the image environment (`DO_NOT_TRACK=1`,
 `OMO_DISABLE_POSTHOG=1`, `OMO_SEND_ANONYMOUS_TELEMETRY=0`,
 `CODEGRAPH_TELEMETRY=0`, `OTEL_SDK_DISABLED=true`). OpenAgent setup also forces
-`[opencode].telemetry` and `[opencode].codegraph.telemetry` to `false`, including
-existing opt-ins. For manually managed JSONC, set these values yourself.
+`[opencode].telemetry` to `false`, including existing opt-ins. For manually
+managed JSONC, set these values yourself.
 The VS Code devcontainer settings disable Microsoft and Red Hat telemetry;
 keep `telemetry.telemetryLevel: "off"` in local VS Code user settings as well.
 Rebuild the container to apply the image environment to all processes, and restart
