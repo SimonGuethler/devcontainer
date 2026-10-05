@@ -134,6 +134,7 @@ honor them; they do not block model requests, MCP queries, or package downloads.
 | Disable an integration | Use its `--no-*` flag or deselect it in the menu |
 | JSONC config | Existing `opencode.jsonc` files must be edited manually |
 | Local agents and skills | Includes Apollo - Analyzer and workspace-review plus verification, browser-check, project-memory, hyper-review, hyper-analyze, and hyper-research skills, and the `/brainstorm` command |
+| Caveman | Opt-in terse-output modes from [JuliusBrussee/caveman](https://github.com/JuliusBrussee/caveman) (vendored, pinned to `v3.1.0`, Apache-2.0; see `CAVEMAN-LICENSE` and `CAVEMAN-NOTICE` in `.devcontainer/opencode/`): `/caveman` (terse), `/ultracave` (fragments), `/megacave` (Classical Chinese), `/caveman-review` (one-line findings), `/caveman-commit` (staged-commit message, output only). Off by default and per session; ends with "stop caveman". Code, commits, and security warnings stay normal English. The token-saving proxy component is intentionally not installed. |
 | Zsh setup | Backs up a differing `.zshrc` before replacement; manages OpenCode PATH entries in marked blocks |
 
 Use `/hyper-review <target or review request>` to assess a concrete artifact or

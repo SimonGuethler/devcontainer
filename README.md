@@ -44,6 +44,8 @@ Change to your project's directory, then run `opencode`. See the [configuration 
 bash /workspace/.devcontainer/setup-opencode.sh --help
 ```
 
+The OpenCode agent setup also installs opt-in [Caveman](https://github.com/JuliusBrussee/caveman) output modes (`/caveman`, `/ultracave`, and friends; off by default). See [OpenCode skills and commands](#opencode-skills-and-commands).
+
 ## Daily use
 
 The repository root is mounted at `/workspace`. Clone projects here on the host or inside the container, then work in `/workspace/your-project`. Nested projects keep their own Git repositories; the root `.gitignore` allows only devcontainer files and documentation.
@@ -75,6 +77,12 @@ Run Docker Compose commands from this repository's root **on the host**. The con
 | Shell | Zsh, Oh My Zsh, autosuggestions, syntax highlighting, history search, fzf |
 | Utilities | Git, Git LFS, ripgrep, fd, jq, SQLite CLI, ShellCheck, tmux, croc |
 | VS Code | Python, notebooks, Vue, Rust, and configuration-file extensions; formatting defaults for Python, JavaScript, TypeScript, and Vue |
+
+### OpenCode skills and commands
+
+The agent setup installs local skills for verification, browser checks, project memory, and the hyper-* review and research workflows, plus the `/brainstorm`, `/image-gen`, and `/video-analysis` commands.
+
+It also vendors opt-in Caveman output modes from [JuliusBrussee/caveman](https://github.com/JuliusBrussee/caveman), pinned to tag `v3.1.0` (Apache-2.0; license text and notice in `.devcontainer/opencode/CAVEMAN-LICENSE` and `CAVEMAN-NOTICE`): `/caveman`, `/ultracave`, `/megacave`, `/caveman-review`, and `/caveman-commit`. The modes are off by default, apply per session, and end with "stop caveman"; commits and security warnings stay normal English. The token-saving proxy is not installed because models route through LiteLLM.
 
 ## Reference
 

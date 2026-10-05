@@ -58,7 +58,7 @@ run
 grep -q 'mode: subagent' "${CONFIG_DIR}/agents/workspace-review.md"
 cmp -s "${SCRIPT_DIR}/opencode/agents/apollo-analyzer.md" "${CONFIG_DIR}/agents/apollo-analyzer.md"
 skills=("${CONFIG_DIR}"/skills/*)
-[[ ${#skills[@]} -eq 7 ]]
+[[ ${#skills[@]} -eq 10 ]]
 cmp -s "${SCRIPT_DIR}/opencode/skills/hyper-review/SKILL.md" "${CONFIG_DIR}/skills/hyper-review/SKILL.md"
 cmp -s "${SCRIPT_DIR}/opencode/commands/hyper-review.md" "${CONFIG_DIR}/commands/hyper-review.md"
 cmp -s "${SCRIPT_DIR}/opencode/skills/hyper-analyze/SKILL.md" "${CONFIG_DIR}/skills/hyper-analyze/SKILL.md"
@@ -71,6 +71,14 @@ cmp -s "${SCRIPT_DIR}/opencode/skills/hyper-execute/references/verifier-prompts.
 cmp -s "${SCRIPT_DIR}/opencode/skills/hyper-execute/references/opencode-runtime.md" "${CONFIG_DIR}/skills/hyper-execute/references/opencode-runtime.md"
 cmp -s "${SCRIPT_DIR}/opencode/commands/hyper-execute.md" "${CONFIG_DIR}/commands/hyper-execute.md"
 cmp -s "${SCRIPT_DIR}/opencode/commands/brainstorm.md" "${CONFIG_DIR}/commands/brainstorm.md"
+cmp -s "${SCRIPT_DIR}/opencode/skills/caveman/SKILL.md" "${CONFIG_DIR}/skills/caveman/SKILL.md"
+cmp -s "${SCRIPT_DIR}/opencode/skills/ultracave/SKILL.md" "${CONFIG_DIR}/skills/ultracave/SKILL.md"
+cmp -s "${SCRIPT_DIR}/opencode/skills/megacave/SKILL.md" "${CONFIG_DIR}/skills/megacave/SKILL.md"
+cmp -s "${SCRIPT_DIR}/opencode/commands/caveman.md" "${CONFIG_DIR}/commands/caveman.md"
+cmp -s "${SCRIPT_DIR}/opencode/commands/ultracave.md" "${CONFIG_DIR}/commands/ultracave.md"
+cmp -s "${SCRIPT_DIR}/opencode/commands/megacave.md" "${CONFIG_DIR}/commands/megacave.md"
+cmp -s "${SCRIPT_DIR}/opencode/commands/caveman-review.md" "${CONFIG_DIR}/commands/caveman-review.md"
+cmp -s "${SCRIPT_DIR}/opencode/commands/caveman-commit.md" "${CONFIG_DIR}/commands/caveman-commit.md"
 cmp -s "${SCRIPT_DIR}/opencode/commands/image-gen.md" "${CONFIG_DIR}/commands/image-gen.md"
 cmp -s "${SCRIPT_DIR}/opencode/commands/image-gen.sh" "${CONFIG_DIR}/commands/image-gen.sh"
 bash "${CONFIG_DIR}/commands/image-gen.sh" --help > "${TEST_ROOT}/image-help"

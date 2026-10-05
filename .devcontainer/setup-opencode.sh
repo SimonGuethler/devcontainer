@@ -732,11 +732,6 @@ write_configuration() {
 write_configuration
 if [[ "$OPENAGENT_FLAG" == yes ]]; then
     OMO_MODEL="$OMO_MODEL" bash "$OPENAGENT_SETUP"
-    # Workaround for upstream lost parent wakes (see fix-omo-parent-wake.sh).
-    # Non-fatal: an upstream bundle change must not abort setup.
-    if ! bash "$SCRIPT_DIR/fix-omo-parent-wake.sh"; then
-        warn "OMO parent-wake patch not applied; background task wakes may be lost until it is fixed"
-    fi
 fi
 
 if [[ ${#HARNESS_ARGS[@]} -gt 0 || "$OPENAGENT_FLAG" == yes ]]; then
