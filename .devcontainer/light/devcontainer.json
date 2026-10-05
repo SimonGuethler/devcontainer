@@ -44,7 +44,6 @@
                 "git.autoRepositoryDetection": "subFolders",
                 "git.repositoryScanMaxDepth": 2,
                 "git.ignoreLimitWarning": true,
-                "git.autofetch": true,
                 "files.exclude": {
                     "**/node_modules": true,
                     "**/.venv": true,

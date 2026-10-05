@@ -40,8 +40,9 @@ if [[ "$DRY_RUN" == true ]]; then
 fi
 
 # Validate required executables before making changes.
-[[ "$PLAYWRIGHT" != yes ]] || { command -v npm >/dev/null; command -v npx >/dev/null; }
-[[ "$PAPER_SEARCH" != yes ]] || command -v uvx >/dev/null
+[[ "$PLAYWRIGHT" != yes ]] || command -v npm >/dev/null || { echo "npm is required for the Playwright CLI integration" >&2; exit 1; }
+[[ "$PLAYWRIGHT" != yes ]] || command -v npx >/dev/null || { echo "npx is required to install the Playwright browser" >&2; exit 1; }
+[[ "$PAPER_SEARCH" != yes ]] || command -v uvx >/dev/null || { echo "uvx is required for the Paper Search CLI integration" >&2; exit 1; }
 
 TEMPORARY=""
 trap '[[ -z "$TEMPORARY" ]] || rm -f -- "$TEMPORARY"' EXIT

@@ -5,7 +5,7 @@ Downloads one or more YouTube videos (or a text file with URLs), transcribes
 them locally with WhisperX (large-v2, Silero VAD, float16) or via the proxy
 whisper endpoint, extracts 1 fps frames (capped at 120 per video, uniformly
 downsampled so the frame suffix stays equal to the second), describes frames
-in batches of 6-8 with the multimodal chat model, synthesizes a German
+in 12–16-frame batches with the multimodal chat model, synthesizes a German
 markdown report, and maintains _index.md plus a per-video pipeline-state.json
 manifest keyed by videoId.
 
@@ -17,10 +17,10 @@ from __future__ import annotations
 
 import argparse
 import base64
-import hashlib
 import json
 import mimetypes
 import os
+import random
 import re
 import shutil
 import subprocess
@@ -70,9 +70,14 @@ MODEL_ID = "local-inference-lab/GLM-5.3-Flash-NVFP4"
 YTDLP_TIMEOUT = 1800
 FFMPEG_TIMEOUT = 1800
 VISION_TIMEOUT = 240
-SYNTHESIS_TIMEOUT = 600
 ASR_TIMEOUT = 3600
 PROBE_TIMEOUT = 300
+EXTRACTION_TIMEOUT = 600
+# Synthesis at reasoning_effort=max routinely needs >10 min for long videos;
+# a 600 s socket timeout turned into 3 hang-failures per attempt. Scale the
+# budget with effort and let every attempt use it (incl. the token-budget bump).
+SYNTHESIS_TIMEOUT_EFFORT = {"low": 600, "high": 1200, "max": 1800}
+RETRY_BACKOFF_BASE_S = 2.0  # exponential backoff base for transport retries
 
 VENV_DIR = Path.home() / ".config/opencode/tools/video-analysis/.venv"
 MODELS_DIR = Path.home() / ".config/opencode/tools/video-analysis/models"
@@ -127,15 +132,17 @@ def chat_completion(
     base_url: str,
     timeout: int,
     max_tokens: int,
-    transport_retries: int = 2,
+    transport_retries: int = 3,
     reasoning_effort: str | None = None,
+    accept_truncated: bool = False,
 ) -> str:
     body = {"model": MODEL_ID, "messages": messages, "max_tokens": max_tokens}
     if reasoning_effort:
         body["reasoning_effort"] = reasoning_effort
-    transport_attempts = transport_retries + 1
     budget_retried = False
-    for attempt in range(max(transport_attempts, 2)):
+    attempt = 0
+    while True:
+        attempt += 1
         request = urllib.request.Request(
             f"{base_url}/chat/completions",
             data=json.dumps(body).encode("utf-8"),
@@ -149,12 +156,24 @@ def chat_completion(
             with urllib.request.urlopen(request, timeout=timeout) as response:
                 data = json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
+            status = exc.code
             detail = exc.read().decode("utf-8", errors="replace")[:500]
-            raise PipelineError(f"Chat endpoint HTTP {exc.code}: {detail}") from exc
+            retryable = status == 429 or status >= 500
+            if retryable and attempt <= transport_retries:
+                retry_after = exc.headers.get("Retry-After") if exc.headers else None
+                try:
+                    delay = max(2.0, float(retry_after)) if retry_after else min(60.0, RETRY_BACKOFF_BASE_S ** attempt)
+                except (TypeError, ValueError):
+                    delay = min(60.0, RETRY_BACKOFF_BASE_S ** attempt)
+                delay += random.uniform(0, delay * 0.25)
+                log(f"  chat: HTTP {status}; retrying in {delay:.1f}s (attempt {attempt}/{transport_retries})")
+                time.sleep(delay)
+                continue
+            raise PipelineError(f"Chat endpoint HTTP {status}: {detail}") from exc
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
-            if attempt + 1 < transport_attempts:
-                delay = 1.5 * (attempt + 1)
-                log(f"  chat: transport error ({exc}); retrying in {delay:.1f}s")
+            if attempt <= transport_retries:
+                delay = min(60.0, RETRY_BACKOFF_BASE_S ** attempt) + random.uniform(0, 1.0)
+                log(f"  chat: transport error ({exc}); retrying in {delay:.1f}s (attempt {attempt}/{transport_retries})")
                 time.sleep(delay)
                 continue
             raise PipelineError(f"Chat endpoint unreachable: {exc}") from exc
@@ -166,10 +185,20 @@ def chat_completion(
         except (KeyError, IndexError, TypeError) as exc:
             raise PipelineError(f"Unexpected chat response shape: {exc}") from exc
         if isinstance(content, str) and content.strip():
+            if finish_reason == "length" and not accept_truncated:
+                if not budget_retried:
+                    budget_retried = True
+                    body["max_tokens"] = min(max_tokens * 4, 100_000)
+                    log(f"  chat: truncated content (reasoning exhausted budget); retrying with {body['max_tokens']} tokens")
+                    continue
+                raise PipelineError(
+                    "Chat response truncated even with increased token budget "
+                    f"({len(content)} chars, finish_reason=length)."
+                )
+            if finish_reason == "length":
+                log("  chat: WARNING content may be truncated (finish_reason=length with non-empty content)")
             return content
-        if finish_reason == "length":
-            if budget_retried:
-                break
+        if finish_reason == "length" and not budget_retried:
             budget_retried = True
             body["max_tokens"] = min(max_tokens * 4, 100_000)
             log(f"  chat: empty content (reasoning exhausted budget); retrying with {body['max_tokens']} tokens")
@@ -178,25 +207,35 @@ def chat_completion(
             "Chat response had empty content without truncation "
             f"(finish_reason={finish_reason!r}); a larger token budget would not help."
         )
-    raise PipelineError(
-        "Chat response had empty content even with increased token budget."
-    )
 
 
 def whisper_proxy_transcribe(
-    audio_path: Path, api_key: str, base_url: str
+    audio_path: Path,
+    api_key: str,
+    base_url: str,
+    model: str = "whisper-large-v3",
+    language: str = "auto",
 ) -> list[dict]:
     boundary = "----videoanalysisboundary7d9f2c"
     mime = mimetypes.guess_type(audio_path.name)[0] or "application/octet-stream"
     parts = [
         (
             f'--{boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\n'
-            f"whisper-large-v3\r\n"
+            f"{model}\r\n"
         ).encode("utf-8"),
         (
             f'--{boundary}\r\nContent-Disposition: form-data; name="response_format"\r\n\r\n'
             f"verbose_json\r\n"
         ).encode("utf-8"),
+    ]
+    if language and language != "auto":
+        parts.append(
+            (
+                f'--{boundary}\r\nContent-Disposition: form-data; name="language"\r\n\r\n'
+                f"{language}\r\n"
+            ).encode("utf-8")
+        )
+    parts += [
         (
             f'--{boundary}\r\nContent-Disposition: form-data; name="file"; '
             f'filename="{audio_path.name}"\r\nContent-Type: {mime}\r\n\r\n'
@@ -350,17 +389,18 @@ def rename_media_files(folder: Path, video_id: str, audio_only: bool) -> None:
 
 
 def extract_frames(
-    video_path: Path, frames_dir: Path, duration_s: float, fps_wanted: float
+    video_path: Path, frames_dir: Path, duration_s: float, fps_wanted: float,
+    frame_cap: int = FRAME_CAP,
 ) -> int:
-    """Extract JPEG frames; cap total at FRAME_CAP by uniform fps reduction.
+    """Extract JPEG frames; cap total at frame_cap by uniform fps reduction.
 
     The cap rule keeps filename == second: when duration * fps exceeds the
     cap, fps becomes Cap/duration so frame N still maps to second N.
     """
     frames_dir.mkdir(parents=True, exist_ok=True)
     fps = fps_wanted
-    if duration_s > 0 and duration_s * fps_wanted > FRAME_CAP:
-        fps = FRAME_CAP / duration_s
+    if duration_s > 0 and duration_s * fps_wanted > frame_cap:
+        fps = frame_cap / duration_s
     cmd = [
         "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
         "-i", str(video_path),
@@ -546,13 +586,13 @@ def encode_image(path: Path) -> str:
     return f"data:{media_type};base64,{b64}"
 
 
-VISION_PROMPT = """You are analyzing frames sampled from a technical talk or tutorial video. For each frame, state concisely:
+VISION_PROMPT = """You are analyzing frames sampled from a technical talk or tutorial video. State concisely:
 - what is visible (slide, code editor, terminal, diagram, demo UI, talking head, title card)
 - any readable slide title or on-screen text (verbatim where short)
 - if code is visible: language and what it roughly does
 - scene changes between consecutive frames
 
-Answer as a compact list, one entry per frame, prefixed with its second (e.g. "s012: ..."). Use English; keep each entry under 30 words."""
+One entry per distinct scene, not per frame: merge consecutive frames that show the same content into a single entry with a second range (e.g. "s012-s034: unchanged talking head"). A scene change always starts a new entry with its own second. Use English; keep each entry under 30 words."""
 
 
 def analyze_frames(frames: list[Path], api_key: str, base_url: str) -> list[dict]:
@@ -580,6 +620,7 @@ def analyze_frames(frames: list[Path], api_key: str, base_url: str) -> list[dict
             answer = chat_completion(
                 [{"role": "user", "content": content}],
                 api_key, base_url, timeout=VISION_TIMEOUT, max_tokens=2000,
+                accept_truncated=True,
             )
         except PipelineError as exc:
             log(f"  vision: batch {second_range}s FAILED after retries: {str(exc)[:120]}")
@@ -602,15 +643,7 @@ def analyze_frames(frames: list[Path], api_key: str, base_url: str) -> list[dict
     return notes
 
 
-def build_synthesis_prompt(
-    info: dict, transcript: dict, scenes: list[dict], lang_report: str
-) -> str:
-    duration = info.get("duration") or 0
-    chapters = info.get("chapters") or []
-    chapter_lines = [
-        f"- {seconds_to_mmss(c.get('start_time', 0))} {c.get('title', '')}" for c in chapters
-    ]
-    chapter_block = "\n".join(chapter_lines) if chapters else "(keine YouTube-Kapitel)"
+def build_source_texts(info: dict, transcript: dict, scenes: list[dict]) -> tuple[str, str]:
     lines = [
         f"[{seconds_to_mmss(seg['start'])}] {seg['text']}"
         for seg in transcript.get("segments", [])
@@ -621,11 +654,40 @@ def build_synthesis_prompt(
         step = max(1, len(lines) // max(1, MAX_TRANSCRIPT_CHARS // max(1, len(transcript_text) // len(lines))))
         sampled = lines[::step]
         transcript_text = (
-            "(Transkript wegen Länge gleichmäßig ausgedünnt)\n" + "\n".join(sampled)
+            "(Transcript thinned uniformly because of length)\n" + "\n".join(sampled)
         )
-    scene_text = "\n".join(
-        f"[Batch {note['batch_seconds']}s]\n{note['notes']}" for note in scenes
-    ) or "(keine Frame-Analyse verfügbar)"
+    scene_parts = []
+    for note in scenes:
+        if note.get("notes"):
+            scene_parts.append(f"[Batch {note['batch_seconds']}s]\n{note['notes']}")
+        elif note.get("error"):
+            scene_parts.append(
+                f"[Batch {note['batch_seconds']}s] (frame analysis failed: {note['error']})"
+            )
+    scene_text = "\n".join(scene_parts) or "(no frame analysis available)"
+    return scene_text, transcript_text
+
+
+def build_synthesis_prompt(
+    info: dict,
+    transcript: dict,
+    scenes: list[dict],
+    lang_report: str,
+    extraction: str | None = None,
+    effort: str = "max",
+) -> str:
+    duration = info.get("duration") or 0
+    chapters = info.get("chapters") or []
+    chapter_lines = [
+        f"- {seconds_to_mmss(c.get('start_time', 0))} {c.get('title', '')}" for c in chapters
+    ]
+    chapter_block = "\n".join(chapter_lines) if chapters else "(no YouTube chapters)"
+    scene_text, transcript_text = build_source_texts(info, transcript, scenes)
+    extraction_block = (
+        f"Pre-extraction (preprocessing, verify and use):\n{extraction}\n"
+        if extraction
+        else ""
+    )
     return SYNTHESIS_PROMPT.format(
         title=info.get("title", ""),
         channel=info.get("channel", ""),
@@ -636,8 +698,58 @@ def build_synthesis_prompt(
         chapters=chapter_block,
         scenes=scene_text,
         transcript=transcript_text,
+        extraction=extraction_block,
+        density_rule=DENSITY_RULES[effort],
         lang=lang_report,
     )
+
+
+def run_extraction(
+    folder: Path,
+    info: dict,
+    transcript: dict,
+    scenes: list[dict],
+    api_key: str,
+    base_url: str,
+) -> str | None:
+    """Cheap effort=low pre-pass that mines key points, verbatim quote
+    candidates, and visual elements so the max-effort synthesis call does not
+    have to re-derive them. Best-effort: returns None on failure."""
+    extraction_path = folder / "extraction.json"
+    if extraction_path.exists():
+        try:
+            cached = json.loads(extraction_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            cached = None
+        if isinstance(cached, dict) and isinstance(cached.get("text"), str) and cached["text"].strip():
+            log("  extraction: cached")
+            return cached["text"]
+    scene_text, transcript_text = build_source_texts(info, transcript, scenes)
+    prompt = EXTRACTION_PROMPT.format(
+        title=info.get("title", ""),
+        channel=info.get("channel", ""),
+        published=format_date(info.get("upload_date", "")),
+        duration=seconds_to_mmss(info.get("duration") or 0),
+        scenes=scene_text,
+        transcript=transcript_text,
+    )
+    try:
+        text = chat_completion(
+            [{"role": "user", "content": prompt}],
+            api_key, base_url, timeout=EXTRACTION_TIMEOUT, max_tokens=8000,
+            reasoning_effort="low",
+        )
+    except PipelineError as exc:
+        log(f"  extraction: failed ({str(exc)[:120]}); synthesizing without pre-pass")
+        return None
+    extraction_path.write_text(
+        json.dumps(
+            {"text": text, "created_at": datetime.now().isoformat(timespec="seconds")},
+            ensure_ascii=False, indent=1,
+        ),
+        encoding="utf-8",
+    )
+    return text
 
 
 def format_date(raw: str) -> str:
@@ -645,49 +757,81 @@ def format_date(raw: str) -> str:
     return f"{date[0:4]}-{date[4:6]}-{date[6:8]}" if len(date) == 8 else date
 
 
-SYNTHESIS_PROMPT = """Du erstellst aus den folgenden Quellen einen Video-Report. Antworte AUSSCHLIESSLICH mit dem Markdown-Dokument (kein Vorwort, keine Code-Fences um das Ganze).
+EXTRACTION_PROMPT = """You prepare a video for a report. Extract the following EXCLUSIVELY as a Markdown list (no preamble, no code fences):
 
-Video: „{title}" — {channel}, veröffentlicht {published}, Dauer {duration}, {views:,} Aufrufe, {url}
+- 8-15 key points per video quarter (fewer quarters for short videos): content of the section, each with several [mm:ss] timestamps
+- 6 quote candidates: copied verbatim 1:1 from the transcript, including filler words, with [mm:ss]
+- All distinct visual elements (slides, demos, diagrams) with [mm:ss]
+- Mentioned resources (links, papers, tools, books)
 
-YouTube-Kapitel:
-{chapters}
+Video: "{title}" — {channel}, published {published}, duration {duration}
 
-Visuelle Frame-Notizen (aus Bildanalyse):
+Visual frame notes:
 {scenes}
 
-Transkript mit Timestamps [mm:ss]:
+Transcript with timestamps [mm:ss]:
 {transcript}
 
-Erstelle den Report exakt nach dieser Struktur:
+Rules: Use only information from the sources; invent nothing. Timestamps must come from the transcript or the frame notes. Copy quotes exactly word for word."""
+
+
+SYNTHESIS_PROMPT = """You create a video report from the following sources. Answer EXCLUSIVELY with the Markdown document (no preamble, no code fences around the whole document).
+
+Video: "{title}" — {channel}, published {published}, duration {duration}, {views:,} views, {url}
+
+YouTube chapters:
+{chapters}
+
+Visual frame notes (from image analysis):
+{scenes}
+
+Transcript with timestamps [mm:ss]:
+{transcript}
+
+{extraction}Create the report exactly following this structure:
 
 # {title}
-> {channel} · {published} · {duration} · {views:,} Aufrufe · {url}
+> {channel} · {published} · {duration} · {views:,} views · {url}
 
 ## Abstract
-(3–5 Sätze, was das Video leistet und für wen)
+(3–5 sentences: what the video delivers and for whom)
 
 ## TL;DR
-(5–7 Stichpunkte, je eine Zeile als Markdown-Liste)
+(5–7 bullet points, one line each as a Markdown list)
 
 ## Inhalt
-(Abschnitte entlang der Kapitel oder Themenblöcke; wenn keine Kapitel existieren, bilde thematische Blöcke über je ~5 Minuten; jede Aussage mit [mm:ss]-Timestamps aus dem Transkript belegen; im Zweifel MEHR Timestamps als weniger — jede Aussage soll einzeln prüfbar sein)
+{density_rule}
 
 ## Kernargumente
-(3–6 Bullets mit dem substanziellsten Inhalt)
+(3–6 bullets with the most substantial content)
 
 ## Visuelles
-(Slides/Demos/Diagramme aus den Frame-Notizen, mit Timestamps [mm:ss]; jedes visuelle Element bekommt einen eigenen Listenpunkt — keine Sammelzusammenfassung; ohne visuelle Notizen schreib „(nicht verfügbar)")
+(Slides/demos/diagrams from the frame notes, with [mm:ss] timestamps; each visual element gets its own list item — no collective summary; without visual notes write "(not available)")
 
 ## Markante Zitate
-(Exakt 3 wörtliche Zitate: kopiere die Sätze 1:1 aus dem Transkript, inklusive Füllwörter — keine Paraphrase, keine Kürzung; jeweils mit [mm:ss])
+(Exactly 3 verbatim quotes: copy the sentences 1:1 from the transcript, including filler words — no paraphrase, no trimming; each with [mm:ss]; decide on the first clearly fitting quote instead of searching for better candidates)
 
 ## Themen/Tags
-(5–8 kurze Tags als Liste)
+(5–8 short tags as a list)
 
 ## Erwähnte Ressourcen
-(Links, Paper, Tools, Bücher aus Transkript/Visuellem; sonst „(keine)")
+(Links, papers, tools, books from transcript/visuals; otherwise "(none)")
 
-Regeln: Antworte auf {lang}. Verwende nur Informationen aus den Quellen; erfinde nichts. Timestamps müssen aus dem Transkript oder den Frame-Notizen stammen. Wenn das Transkript mehrere Zeitangaben oder eine Reihenfolge von Ereignissen nennt, gib die Chronologie exakt wieder — keine zusammengefassten Zeitangaben."""
+Rules: Answer in {lang}. Use only information from the sources; invent nothing. Timestamps must come from the transcript or the frame notes. If the transcript names a sequence of events, dates, or work steps, reproduce exactly those elements in the stated order. The pre-extraction does not replace the transcript evidence."""
+
+
+DENSITY_RULE_MAX = (
+    "Support every statement with [mm:ss] timestamps from the transcript; when in doubt, MORE "
+    "timestamps rather than fewer — every statement should be individually verifiable. The "
+    "pre-extraction is a working aid for research and ordering — the dense timestamp evidence "
+    "comes from the transcript, not from the extraction."
+)
+DENSITY_RULE_HIGH = (
+    "Support key statements with [mm:ss] timestamps from the transcript; thematic blocks may "
+    "instead name a time range (e.g. [02:20–09:55]). The pre-extraction provides research and "
+    "ordering."
+)
+DENSITY_RULES = {"max": DENSITY_RULE_MAX, "high": DENSITY_RULE_MAX, "low": DENSITY_RULE_HIGH}
 
 
 def sanitize_cell(text: str) -> str:
@@ -711,11 +855,11 @@ def write_index_entry(
         f"{seconds_to_mmss(duration)} | {status}{error_cell} | "
         f"{format_date(upload_date)} | `{sanitize_cell(folder_name)}` |"
     )
-    header = "| Titel | Kanal | Dauer | Status | Datum | Ordner |\n|---|---|---|---|---|---|"
+    header = "| Title | Channel | Duration | Status | Date | Folder |\n|---|---|---|---|---|---|"
     if index_path.exists():
         lines = index_path.read_text(encoding="utf-8").splitlines()
     else:
-        lines = ["# Video-Analysen", "", header]
+        lines = ["# Video Analyses", "", header]
     row_idx = next(
         (i for i, line in enumerate(lines) if video_id in line and line.startswith("|")),
         None,
@@ -755,13 +899,17 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--out", default="video-analysis", help="Output directory (default: video-analysis/)")
     parser.add_argument("--frames", type=float, default=1.0, help="Frames per second (default 1, cap 120)")
+    parser.add_argument(
+        "--frame-cap", type=int, default=FRAME_CAP,
+        help=f"Max frames per video (default {FRAME_CAP}); raise for fast-cut long videos",
+    )
     parser.add_argument("--lang", default="auto", help="Audio language hint for WhisperX (default: auto)")
     parser.add_argument("--lang-report", default="Deutsch", help="Report language (default: Deutsch)")
     parser.add_argument(
         "--report-effort",
         choices=["low", "high", "max"],
-        default="max",
-        help="Reasoning effort for the synthesis call (default: max; low/high are ~4x faster with slightly less detail)",
+        default="high",
+        help="Reasoning effort for the synthesis call (default: high; max adds ~10-40%% more timestamps at 3-10x cost and can exhaust the reasoning budget)",
     )
     parser.add_argument(
         "--asr", choices=["local", "proxy"], default="local",
@@ -964,7 +1112,15 @@ def finish_transcription(
             )
             normalize_transcript(mapping[canonical.stem], folder)
         else:
-            segments = whisper_proxy_transcribe(canonical, api_key, base_url)
+            if args.lang != "auto" or args.diarize or args.whisper_model != "large-v2":
+                log(
+                    "  asr: note --lang/--whisper-model/--diarize apply to local WhisperX; "
+                    "proxy mode uses whisper-large-v3 without diarization"
+                )
+            segments = whisper_proxy_transcribe(
+                canonical, api_key, base_url,
+                language=args.lang if args.lang != "auto" else "auto",
+            )
             write_transcript_files({"language": None, "segments": segments}, folder)
     except PipelineError:
         captions = promote_captions(folder)
@@ -1073,7 +1229,8 @@ def finish_video(
             media.rename(video_file)
         if not any(frames_dir.glob("frame-*.jpg")):
             n = extract_frames(
-                video_file, frames_dir, float(metadata.get("duration") or 0), args.frames
+                video_file, frames_dir, float(metadata.get("duration") or 0),
+                args.frames, frame_cap=args.frame_cap,
             )
             log(f"  frames: {n} extracted")
         if args.keep_audio and not (folder / "audio.wav").exists():
@@ -1099,17 +1256,44 @@ def finish_video(
         scenes = []
         if scenes_path.exists():
             scenes = json.loads(scenes_path.read_text(encoding="utf-8"))
-        prompt = build_synthesis_prompt(metadata, transcript, scenes, args.lang_report)
-        log(f"  synthesis: calling model for report (reasoning_effort={args.report_effort})")
-        report_text = chat_completion(
-            [{"role": "user", "content": prompt}],
-            api_key, base_url, timeout=SYNTHESIS_TIMEOUT, max_tokens=24000,
-            reasoning_effort=args.report_effort,
+        extraction = run_extraction(folder, metadata, transcript, scenes, api_key, base_url)
+        prompt = build_synthesis_prompt(
+            metadata, transcript, scenes, args.lang_report,
+            extraction=extraction, effort=args.report_effort,
         )
+        synthesis_timeout = SYNTHESIS_TIMEOUT_EFFORT[args.report_effort]
+        log(
+            f"  synthesis: calling model for report (reasoning_effort={args.report_effort}, "
+            f"timeout={synthesis_timeout}s, pre_pass={'yes' if extraction else 'no'})"
+        )
+        try:
+            report_text = chat_completion(
+                [{"role": "user", "content": prompt}],
+                api_key, base_url, timeout=synthesis_timeout, max_tokens=24000,
+                reasoning_effort=args.report_effort,
+            )
+            used_effort = args.report_effort
+        except PipelineError as exc:
+            if args.report_effort != "max":
+                raise
+            log(f"  synthesis: max effort failed ({str(exc)[:120]}); retrying at high effort")
+            report_text = chat_completion(
+                [{"role": "user", "content": prompt}],
+                api_key, base_url, timeout=SYNTHESIS_TIMEOUT_EFFORT["high"], max_tokens=24000,
+                reasoning_effort="high",
+            )
+            used_effort = "high"
+            prompt = build_synthesis_prompt(
+                metadata, transcript, scenes, args.lang_report,
+                extraction=extraction, effort="high",
+            )
         report_text = re.sub(r"^\s*```(?:markdown)?\s*\n", "", report_text.strip())
         report_text = re.sub(r"\n```\s*$", "", report_text)
         report_path.write_text(report_text + "\n", encoding="utf-8")
         manifest["state"] = "reported"
+        manifest["report_effort"] = used_effort
+        if used_effort != args.report_effort:
+            manifest["effort_degraded"] = True
         save_manifest(folder, manifest)
         log(f"  report: {report_path}")
 
@@ -1160,15 +1344,40 @@ def main() -> int:
             expanded.extend(expand_playlist(url, yt_dlp, args.max_playlist))
         else:
             expanded.append(url)
+    expanded = list(dict.fromkeys(expanded))
+    skipped_by_cap: list[str] = []
     if len(expanded) > args.max_playlist:
-        log(
-            f"WARNING: {len(expanded)} URLs exceed the cap of {args.max_playlist}; "
-            f"processing only the first {args.max_playlist}."
-        )
-        expanded = expanded[: args.max_playlist]
+        if not args.inputs or any(item.startswith("@") for item in args.inputs):
+            skipped_by_cap = expanded[args.max_playlist:]
+            expanded = expanded[: args.max_playlist]
+            log(
+                f"WARNING: {len(skipped_by_cap)} URLs exceed the cap of {args.max_playlist}; "
+                f"they will be listed as skipped in the index and skipped-urls.txt."
+            )
+        else:
+            raise PipelineError(
+                f"{len(expanded)} URLs exceed the cap of {args.max_playlist}. "
+                f"Raise --max-playlist, split the input, or use a playlist URL."
+            )
 
     api_key, base_url = read_config()
     exit_code = 0
+    run_summary: list[dict] = []
+    run_started = time.monotonic()
+    run_start_wall = datetime.now()
+
+    def summarize(
+        video_id: str | None, url: str, status: str, folder_name: str = "-",
+        error: str = "", seconds: float | None = None,
+    ) -> None:
+        run_summary.append({
+            "video_id": video_id or url,
+            "url": url,
+            "status": status,
+            "folder": folder_name,
+            "error": error[:300],
+            "seconds": round(seconds, 1) if seconds is not None else None,
+        })
 
     def fail_url(video_id: str | None, url: str, message: str) -> None:
         nonlocal exit_code
@@ -1178,15 +1387,33 @@ def main() -> int:
         )
         exit_code = 1
 
+    for url in skipped_by_cap:
+        write_index_entry(
+            index_path, lenient_video_id(url) or url, url, "", 0, "", "-",
+            "skipped (cap)", "not processed: batch cap reached",
+        )
+        summarize(lenient_video_id(url) or url, url, "skipped (cap)", "-",
+                  error="not processed: batch cap reached")
+    if skipped_by_cap:
+        skipped_path = out_dir / "skipped-urls.txt"
+        existing = skipped_path.read_text(encoding="utf-8").splitlines() if skipped_path.exists() else []
+        merged = list(dict.fromkeys(existing + skipped_by_cap))
+        skipped_path.write_text(
+            "".join(f"{url}\n" for url in merged), encoding="utf-8"
+        )
+        exit_code = 1
+
     # Phase 1: resolve folders and download all videos (sequential, yt-dlp).
     pending_transcribe: list[tuple[str, Path, dict]] = []
     finished: set[str] = set()
+    video_started: dict[str, float] = {}
     for url in expanded:
         video_id = lenient_video_id(url)
         try:
             if video_id is None:
                 raise PipelineError(f"Cannot extract video id from URL: {url}")
             log(f"Video {video_id}: starting")
+            video_started[video_id] = time.monotonic()
             folder, manifest = prepare_video(args, url, video_id, out_dir)
             try:
                 ensure_downloaded(args, url, video_id, folder, manifest)
@@ -1194,6 +1421,9 @@ def main() -> int:
                 manifest["error"] = str(exc)[:300]
                 record_failure(index_path, video_id, folder, manifest)
                 fail_url(video_id, url, str(exc))
+                summarize(video_id, url, "failed", folder.name,
+                          seconds=time.monotonic() - video_started.get(video_id, 0.0),
+                          error=str(exc))
                 continue
             state = manifest.get("state", "queued")
             if state in ("transcribed", "analyzed", "reported") or (folder / "transcript.json").exists():
@@ -1202,8 +1432,14 @@ def main() -> int:
                 pending_transcribe.append((video_id, folder, manifest))
         except PipelineError as exc:
             fail_url(video_id or "", url, str(exc))
+            summarize(video_id or url, url, "failed", "-",
+                      seconds=time.monotonic() - video_started.get(video_id, 0.0) if video_id else None,
+                      error=str(exc))
         except subprocess.TimeoutExpired as exc:
             fail_url(video_id or "", url, f"timeout: {exc}")
+            summarize(video_id or url, url, "failed", "-",
+                      seconds=time.monotonic() - video_started.get(video_id, 0.0) if video_id else None,
+                      error=f"timeout: {exc}")
 
     # Phase 2: transcribe all pending videos with one WhisperX invocation
     # (model loads once for the whole batch instead of once per video).
@@ -1224,6 +1460,9 @@ def main() -> int:
         for video_id, folder, manifest in pending_transcribe:
             if video_id in failed_ids:
                 fail_url(video_id, manifest.get("url", ""), "transcription failed")
+                summarize(video_id, manifest.get("url", ""), "failed", folder.name,
+                          seconds=time.monotonic() - video_started.get(video_id, 0.0),
+                          error="transcription failed")
             else:
                 finished.add(video_id)
 
@@ -1236,6 +1475,7 @@ def main() -> int:
             folder, manifest = prepare_video(args, url, video_id, out_dir)
             if manifest.get("state") == "reported" and (folder / "report.md").exists():
                 log(f"Video {video_id}: already done -> {folder.name}")
+                summarize(video_id, url, "already-done", folder.name)
                 continue
             finish_video(args, video_id, folder, manifest, api_key, base_url, index_path)
             metadata = read_metadata(folder)
@@ -1245,10 +1485,32 @@ def main() -> int:
                 folder.name, "reported",
             )
             log(f"Video {video_id}: done -> {folder.name}")
+            summarize(video_id, url, "reported", folder.name,
+                      seconds=time.monotonic() - video_started.get(video_id, 0.0))
         except PipelineError as exc:
             fail_url(video_id, url, str(exc))
+            summarize(video_id, url, "failed", "-",
+                      seconds=time.monotonic() - video_started.get(video_id, 0.0),
+                      error=str(exc))
         except subprocess.TimeoutExpired as exc:
             fail_url(video_id, url, f"timeout: {exc}")
+            summarize(video_id, url, "failed", "-",
+                      seconds=time.monotonic() - video_started.get(video_id, 0.0),
+                      error=f"timeout: {exc}")
+    if run_summary:
+        summary_path = out_dir / "summary.json"
+        summary_path.write_text(
+            json.dumps(
+                {
+                    "started_at": run_start_wall.isoformat(timespec="seconds"),
+                    "total_seconds": round(time.monotonic() - run_started, 1),
+                    "videos": run_summary,
+                },
+                ensure_ascii=False, indent=1,
+            ) + "\n",
+            encoding="utf-8",
+        )
+        log(f"summary: {summary_path}")
     return exit_code
 
 

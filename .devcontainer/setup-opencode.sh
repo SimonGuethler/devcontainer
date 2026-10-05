@@ -650,7 +650,7 @@ write_configuration() {
     CONFIG_CONTENT="$(printf '%s' "$EXISTING_CONFIG" | \
         SETUP_API_KEY="$API_KEY" jq --arg base "$BASE_URL" --arg version "$LITELLM_PLUGIN_VER" \
         --argjson pdf "$PDF_MCP_ENABLED" --arg pdf_choice "$PDF_MCP_FLAG" \
-        --arg pdf_spec "@sylphx/pdf-reader-mcp@4.1.3" \
+        --arg pdf_spec "@sylphx/anymd@8.5.1" \
         --argjson paper "$PAPER_SEARCH_MCP_ENABLED" --arg paper_choice "$(if [[ "$PAPER_SEARCH_MCP_ENABLED" == true ]]; then echo yes; else echo no; fi)" \
         --argjson browser "$PLAYWRIGHT_MCP_ENABLED" --arg browser_choice "$(if [[ "$PLAYWRIGHT_MCP_ENABLED" == true ]]; then echo yes; else echo no; fi)" \
         --argjson gateway "$LITELLM_MCP_ENABLED" --arg gateway_choice "$LITELLM_MCP_FLAG" \
@@ -698,6 +698,9 @@ write_configuration() {
         | .provider.litellm.options.apiKey = env.SETUP_API_KEY
         # Migrate only the old workspace default; preserve custom commands.
         | if $pdf and .mcp["pdf-reader"].command == ["npx", "-y", "@sylphx/pdf-reader-mcp@latest"] then
+            .mcp["pdf-reader"].command = ["npx", "-y", $pdf_spec]
+          # Migrate the former package id too; preserve custom commands.
+          elif $pdf and .mcp["pdf-reader"].command == ["npx", "-y", "@sylphx/pdf-reader-mcp@4.1.3"] then
             .mcp["pdf-reader"].command = ["npx", "-y", $pdf_spec]
           else . end
         | configure("pdf-reader"; $pdf; $pdf_choice; {type: "local", command: ["npx", "-y", $pdf_spec], enabled: true})

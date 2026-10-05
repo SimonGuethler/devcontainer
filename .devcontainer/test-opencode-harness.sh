@@ -410,12 +410,17 @@ check '(.mcp.playwright.enabled // false) == false and (.mcp["paper-search"].ena
 [[ -f "${isolated_home}/.config/opencode/skills/paper-search/SKILL.md" ]]
 printf 'PASS: unattended setup enables CLI skills and every other add-on\n'
 
-check '.mcp["pdf-reader"].command == ["npx", "-y", "@sylphx/pdf-reader-mcp@4.1.3"]'
+check '.mcp["pdf-reader"].command == ["npx", "-y", "@sylphx/anymd@8.5.1"]'
 jq '.mcp["pdf-reader"].command[-1] = "@sylphx/pdf-reader-mcp@latest"
     | .mcp["pdf-reader"].timeout = 45000' "$CONFIG_FILE" > "${TEST_ROOT}/pdf-legacy"
 cp "${TEST_ROOT}/pdf-legacy" "$CONFIG_FILE"
 main_run --pdf-mcp
-check '.mcp["pdf-reader"].command == ["npx", "-y", "@sylphx/pdf-reader-mcp@4.1.3"] and .mcp["pdf-reader"].timeout == 45000'
+check '.mcp["pdf-reader"].command == ["npx", "-y", "@sylphx/anymd@8.5.1"] and .mcp["pdf-reader"].timeout == 45000'
+jq '.mcp["pdf-reader"].command[-1] = "@sylphx/pdf-reader-mcp@4.1.3"
+    | .mcp["pdf-reader"].timeout = 45000' "$CONFIG_FILE" > "${TEST_ROOT}/pdf-legacy-id"
+cp "${TEST_ROOT}/pdf-legacy-id" "$CONFIG_FILE"
+main_run --pdf-mcp
+check '.mcp["pdf-reader"].command == ["npx", "-y", "@sylphx/anymd@8.5.1"] and .mcp["pdf-reader"].timeout == 45000'
 jq '.mcp["pdf-reader"].command = ["/custom/pdf-reader"]' "$CONFIG_FILE" > "${TEST_ROOT}/pdf-custom"
 cp "${TEST_ROOT}/pdf-custom" "$CONFIG_FILE"
 main_run --pdf-mcp
@@ -660,8 +665,8 @@ printf 'PASS: interrupted proxy check removes credential file\n'
 # Save the terminal state around an interrupted menu in the same PTY.
 # shellcheck disable=SC2016
 printf -v interrupt_command 'trap : INT; before=$(stty -g); %s; result=$?; after=$(stty -g); test "$result" = 130 && test "$before" = "$after"' "$menu_command"
-{ sleep 1; printf '\003'; } |
-    script -q -e -c "$interrupt_command" /dev/null > "${TEST_ROOT}/output" 2>&1
+{ sleep 2; printf '\003'; } |
+    timeout 30s script -q -e -c "$interrupt_command" /dev/null > "${TEST_ROOT}/output" 2>&1
 printf 'PASS: interrupted menu restores terminal settings\n'
 
 isolated_home="${TEST_ROOT}/shell-config"

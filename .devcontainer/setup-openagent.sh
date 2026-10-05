@@ -10,7 +10,8 @@ while [[ $# -gt 0 ]]; do
         *) printf 'Unknown OpenAgent setup option: %s\n' "$1" >&2; exit 1 ;;
     esac
 done
-command -v jq >/dev/null
+[[ -z "$MODEL" || "$MODEL" == */?* ]] || { printf 'OMO_MODEL requires provider/model.\n' >&2; exit 1; }
+command -v jq >/dev/null || { printf 'jq is required to configure OpenAgent.\n' >&2; exit 1; }
 CONFIG_DIR="${HOME}/.omo"
 CONFIG_FILE="${CONFIG_DIR}/omo.json"
 if [[ -e "${CONFIG_DIR}/omo.jsonc" ]]; then

@@ -18,6 +18,7 @@
 !.devcontainer/setup-opencode-cli.sh
 !.devcontainer/test-opencode-harness.sh
 !.devcontainer/test-opencode-agent-display.sh
+!.devcontainer/.dockerignore
 !.devcontainer/opencode/
 !.devcontainer/opencode/commands/
 !.devcontainer/opencode/commands/hyper-review.md
@@ -32,7 +33,6 @@
 !.devcontainer/opencode/commands/video-analysis-setup.sh
 !.devcontainer/opencode/commands/caveman.md
 !.devcontainer/opencode/commands/ultracave.md
-!.devcontainer/opencode/commands/megacave.md
 !.devcontainer/opencode/commands/caveman-review.md
 !.devcontainer/opencode/commands/caveman-commit.md
 !.devcontainer/opencode/playwright-cli.config.json
@@ -69,8 +69,6 @@
 !.devcontainer/opencode/skills/caveman/SKILL.md
 !.devcontainer/opencode/skills/ultracave/
 !.devcontainer/opencode/skills/ultracave/SKILL.md
-!.devcontainer/opencode/skills/megacave/
-!.devcontainer/opencode/skills/megacave/SKILL.md
 !.devcontainer/opencode/CAVEMAN-LICENSE
 !.devcontainer/opencode/CAVEMAN-NOTICE
 !.gitattributes

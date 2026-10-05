@@ -1,0 +1,4 @@
+# Keep the build context minimal: the harness copies the vendored opencode
+# tree into the image, and caches must never leak into it.
+**/__pycache__
+*.pyc

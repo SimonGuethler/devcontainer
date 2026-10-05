@@ -111,7 +111,7 @@ The helper backs up changed `~/.omo/omo.json` files and preserves custom setting
 
 `--no-openagent` removes the plugin registration, including the old `oh-my-opencode` package alias, while retaining its settings for reinstallation. The existing OpenCode uninstall also leaves `~/.omo` intact. Home-directory OpenAgent state is not persisted across container recreation; keep durable project notes in the mounted workspace.
 
-Plugin loading and model execution with OpenCode 1.18.30 require a live smoke test; the setup regression suite uses simulated registry and installation commands.
+Plugin loading and model execution with the installed OpenCode version require a live smoke test; the setup regression suite uses simulated registry and installation commands.
 
 ### Other settings
 
@@ -133,7 +133,7 @@ honor them; they do not block model requests, MCP queries, or package downloads.
 | Agent colors | Setup supplies blue for Build and orange for Plan when no explicit color exists; custom colors are preserved. Rerun setup and restart OpenCode to apply. |
 | Disable an integration | Use its `--no-*` flag or deselect it in the menu |
 | JSONC config | Existing `opencode.jsonc` files must be edited manually |
-| Local agents and skills | Includes Apollo - Analyzer and workspace-review plus verification, browser-check, project-memory, hyper-review, hyper-analyze, and hyper-research skills, and the `/brainstorm` command |
+| Local agents and skills | Includes Apollo - Analyzer and workspace-review plus verification, browser-check, project-memory, hyper-review, hyper-analyze, hyper-research, and hyper-execute skills, and the `/brainstorm` command |
 | Caveman | Opt-in terse-output modes from [JuliusBrussee/caveman](https://github.com/JuliusBrussee/caveman) (vendored, pinned to `v3.1.0`, Apache-2.0; see `CAVEMAN-LICENSE` and `CAVEMAN-NOTICE` in `.devcontainer/opencode/`): `/caveman` (terse), `/ultracave` (fragments), `/caveman-review` (one-line findings), `/caveman-commit` (staged-commit message, output only). The `/megacave` Classical Chinese mode is not vendored. Off by default and per session; ends with "stop caveman". Code, commits, and security warnings stay normal English. The token-saving proxy component is intentionally not installed. |
 | Zsh setup | Backs up a differing `.zshrc` before replacement; manages OpenCode PATH entries in marked blocks |
 
@@ -262,16 +262,28 @@ responses, other formats, multiple outputs, JSONC, and provider-specific extras
 are unsupported. Failed requests are not retried automatically.
 
 Use `/video-analysis <url|@file.txt> [--out DIR] [--asr local|proxy] [--no-video]
-[--keep-audio] [--frames N] [--lang auto] [--lang-report Deutsch] [--report-effort low|high|max]
+[--keep-audio] [--frames N] [--frame-cap 120] [--lang auto] [--lang-report Deutsch]
+[--report-effort low|high|max]
 [--diarize] [--whisper-model large-v2]` to analyze one or more YouTube videos: the command
 downloads each video (≤720p mp4), transcribes locally with WhisperX (Silero VAD,
 float16, word-level alignment; `--asr proxy` uses the proxy whisper endpoint as
-fallback), extracts capped 1 fps frames, describes them with the multimodal chat
-model, and writes a German markdown report plus `_index.md` per batch into
+fallback), extracts capped 1 fps frames (cap tunable via `--frame-cap` for
+fast-cut long videos), describes them with the multimodal chat
+model, and writes a German markdown report plus `_index.md` and a
+machine-readable `summary.json` (per-video status and wall time) per batch into
 `video-analysis/` in the current project. Re-runs skip completed steps; batch
-runs load the Whisper model once for all videos. `--report-effort` tunes the
-synthesis call's reasoning (`max` default, most detail; `low`/`high` are ~4×
-faster with slightly less depth). The
+runs load the Whisper model once for all videos. Synthesis runs after a cheap
+`reasoning_effort=low` extraction pre-pass (cached per video in
+`extraction.json`) that mines keypoints, quote candidates, visual elements,
+and resources; the synthesis socket timeout scales with effort and a failing
+`max` synthesis falls back to one `high` retry. `--report-effort` tunes the
+synthesis call's reasoning (`high` default, statement-level timestamp density;
+`max` adds ~10–40% more timestamps at 3–10× cost and can exhaust the reasoning
+budget — use for single videos you specifically care about; `low` summarizes
+blocks with time ranges instead of per-statement timestamps). Batch caps are
+explicit: overflow from an `@file` batch becomes `skipped (cap)` rows in
+`_index.md` plus `skipped-urls.txt` with a nonzero exit code, and a playlist
+URL over the cap fails hard. The
 first run after a container rebuild needs `video-analysis-setup.sh` (also run
 automatically by the command) and downloads ffmpeg, a Python 3.12 venv with
 yt-dlp and WhisperX 3.8.6, and ~3 GB of Whisper model weights; diarization
@@ -305,9 +317,13 @@ The image has two build targets that use the same shared tooling instructions:
 `heavy` uses the CUDA development base image and adds Rust, while `light` uses
 plain `ubuntu:26.04` and skips Rust. `compose.yml` builds `heavy`,
 `compose.light.yml` builds `light` on hosts without an NVIDIA GPU.
-PDF MCP is pinned to `@sylphx/pdf-reader-mcp@4.1.3` so restarting it cannot silently
-select a newer release. Rerunning setup with PDF enabled migrates the old workspace
-`@latest` command while preserving custom commands.
+PDF MCP is pinned to `@sylphx/anymd@8.5.1` (formerly `@sylphx/pdf-reader-mcp`, npm
+marks old releases deprecated) so restarting it cannot silently select a newer
+release. The tools are `read`, `outline`, `search`, and `inspect` (the old
+read/search/evidence split is merged); PDF evidence operations (render, region
+crop, OCR, structure, compare) are `inspect` operations. Rerunning setup with PDF
+enabled migrates the old workspace `@latest` command and the former
+`@sylphx/pdf-reader-mcp@4.1.3` pin while preserving custom commands.
 
 ## Repository files
 
@@ -323,7 +339,14 @@ select a newer release. Rerunning setup with PDF enabled migrates the old worksp
 | `.devcontainer/setup-zsh.sh` | Shell setup and configuration sync |
 | `.devcontainer/setup-opencode.sh` | OpenCode installation and LiteLLM configuration |
 | `.devcontainer/setup-opencode-harness.sh` | Local agent, skills, and LSP/Context7 configuration |
+| `.devcontainer/setup-opencode-cli.sh` | Optional Playwright/Paper Search CLI integrations |
+| `.devcontainer/setup-openagent.sh` | OpenAgent (oh-my-openagent) configuration helper |
+| `.devcontainer/test-opencode-harness.sh` | Setup regression suite (isolated temporary HOMEs, mocked network binaries) |
+| `.devcontainer/test-opencode-agent-display.sh` | Live registration check for Apollo - Analyzer with a real OpenCode |
+| `.devcontainer/.dockerignore` | Excludes Python caches from the image build context |
 | `.devcontainer/AGENTS.md` | Coding guidelines for optional OpenCode setup |
+| `.gitignore` | Deny-by-default allowlist for versioned files |
+| `.gitattributes` | Line-ending normalization |
 
 ## Validation
 

@@ -20,7 +20,6 @@ RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         bash \
         bat \
-        bc \
         build-essential \
         ca-certificates \
         clang \
@@ -33,12 +32,9 @@ RUN apt-get update \
         git-lfs \
         gnupg \
         htop \
-        iperf3 \
         jq \
         libssl-dev \
-        locales \
         nano \
-        ncdu \
         openssh-client \
         pkg-config \
         ripgrep \
