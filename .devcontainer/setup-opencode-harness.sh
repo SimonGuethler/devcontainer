@@ -33,7 +33,7 @@ while [[ $# -gt 0 ]]; do
         --help)
             cat <<'EOF'
 Usage: bash setup-opencode-harness.sh [options]
-Installs Apollo - Analyzer, workspace-review, ten skills, and /hyper-review, /hyper-analyze, /hyper-research, /hyper-execute, /image-gen, /brainstorm, /caveman, /ultracave, /megacave, /caveman-review, and /caveman-commit; preserves other files.
+Installs Apollo - Analyzer, workspace-review, nine skills, and /hyper-review, /hyper-analyze, /hyper-research, /hyper-execute, /image-gen, /brainstorm, /caveman, /ultracave, /caveman-review, and /caveman-commit; preserves other files.
   --config-dir <path>       OpenCode config directory (default ~/.config/opencode)
   --dry-run                 Preview without changing configuration or printing credentials
   --lsp / --no-lsp           Enable/disable native LSP; unchanged when omitted
@@ -71,18 +71,17 @@ FILES=(
     skills/hyper-execute/references/opencode-runtime.md
     # Caveman (opt-in terse output modes), vendored from
     # https://github.com/JuliusBrussee/caveman tag v3.1.0
-    # (src/plugins/opencode/commands + skills/caveman, ultracave, megacave).
-    # Apache-2.0; license text and notice ship in CAVEMAN-LICENSE and
-    # CAVEMAN-NOTICE next to this script. Update by re-copying from a pinned
-    # upstream tag; see docs/configuration.md.
+    # (src/plugins/opencode/commands + skills/caveman, ultracave; megacave
+    # removed locally). Apache-2.0; license text and notice ship in
+    # CAVEMAN-LICENSE and CAVEMAN-NOTICE next to this script. skills/caveman
+    # carries a modification notice per Apache-2.0 4(b). Update by re-copying
+    # from a pinned upstream tag; see docs/configuration.md.
     commands/caveman.md
     commands/ultracave.md
-    commands/megacave.md
     commands/caveman-review.md
     commands/caveman-commit.md
     skills/caveman/SKILL.md
     skills/ultracave/SKILL.md
-    skills/megacave/SKILL.md
 )
 
 # Stage and validate all inputs before touching the destination.

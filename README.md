@@ -82,7 +82,7 @@ Run Docker Compose commands from this repository's root **on the host**. The con
 
 The agent setup installs local skills for verification, browser checks, project memory, and the hyper-* review and research workflows, plus the `/brainstorm`, `/image-gen`, and `/video-analysis` commands.
 
-It also vendors opt-in Caveman output modes from [JuliusBrussee/caveman](https://github.com/JuliusBrussee/caveman), pinned to tag `v3.1.0` (Apache-2.0; license text and notice in `.devcontainer/opencode/CAVEMAN-LICENSE` and `CAVEMAN-NOTICE`): `/caveman`, `/ultracave`, `/megacave`, `/caveman-review`, and `/caveman-commit`. The modes are off by default, apply per session, and end with "stop caveman"; commits and security warnings stay normal English. The token-saving proxy is not installed because models route through LiteLLM.
+It also vendors opt-in Caveman output modes from [JuliusBrussee/caveman](https://github.com/JuliusBrussee/caveman), pinned to tag `v3.1.0` (Apache-2.0; license text and notice in `.devcontainer/opencode/CAVEMAN-LICENSE` and `CAVEMAN-NOTICE`): `/caveman`, `/ultracave`, `/caveman-review`, and `/caveman-commit`. The `/megacave` Classical Chinese mode is not vendored. The modes are off by default, apply per session, and end with "stop caveman"; commits and security warnings stay normal English. The token-saving proxy is not installed because models route through LiteLLM.
 
 ## Reference
 

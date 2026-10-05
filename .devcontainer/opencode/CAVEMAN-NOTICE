@@ -47,3 +47,8 @@ This product includes third-party software:
 Full license texts: engine/pixel/NOTICE, engine/pixel/assets/SPLEEN_LICENSE.txt,
 engine/pixel/assets/UNIFONT_LICENSE.txt, browse/NOTICE, packages/cli/NOTICE, and
 extension/fonts/GEIST_LICENSE.txt.
+
+Addendum for files vendored in this repository (devcontainer):
+Modified from JuliusBrussee/caveman v3.1.0 (Apache-2.0): skills/caveman/SKILL.md
+drops the `/caveman wenyan` alias (the megacave skill is not vendored here).
+The change is also marked in that file's frontmatter.
